@@ -177,8 +177,9 @@ Avec 5$ chargés sur chaque API : ~290 imports avant de devoir recharger. À 2 i
 - [x] Déploiement backend Railway
 - [x] Pointer l'app prod sur l'URL Railway
 - [x] App responsive desktop (maxWidth centré)
-- [ ] Build APK Android standalone via EAS (preview profile)
-- [ ] Déploiement web Railway (2e service depuis app/)
+- [x] Build APK Android standalone via EAS (preview profile)
+- [x] Déploiement web Railway (2e service depuis app/)
+- [x] Stockage des miniatures dans Supabase Storage (vs CDN direct)
 - [ ] Tester l'import sur une URL Instagram réelle
 - [ ] (Plus tard) Auth Supabase magic link, multi-user
 - [ ] (Plus tard) Collections, partage entre devices
@@ -191,4 +192,6 @@ Avec 5$ chargés sur chaque API : ~290 imports avant de devoir recharger. À 2 i
 - **Re-extraction** : le `raw_transcript` est conservé en DB, donc si on améliore le prompt Claude, on peut re-extraire toutes les recettes existantes sans repayer Whisper.
 - **Déduplication URL** : si la même URL est importée 2× (par soi-même ou un autre user), on pourrait servir directement l'extraction existante. À ajouter quand on aura l'auth.
 - **Mode hors-ligne** : à l'avenir on pourrait cacher les recettes localement avec `expo-sqlite` pour qu'elles soient consultables sans connexion. Pas une priorité V1.
-- **Image hero** : on prend la `thumbnail_url` fournie par yt-dlp (= la miniature YouTube/Instagram). Pas besoin de re-uploader l'image, on pointe directement dessus depuis l'app.
+- **Image hero** : la miniature est désormais re-uploadée dans Supabase Storage (bucket public `thumbnails`) pendant l'import. Le pointage direct vers le CDN YouTube/Instagram était fragile — Instagram signe ses URLs avec une expiration de quelques heures, et `maxresdefault.jpg` YouTube renvoie parfois 404. Cache CDN Supabase 7j, fallback sur l'URL d'origine si l'upload échoue.
+  - Helper : `uploadThumbnailFromUrl()` dans `db/supabase.js`.
+  - Migration des recettes existantes : `node server/scripts/migrate-thumbnails.js` (script idempotent).

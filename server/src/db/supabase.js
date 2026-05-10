@@ -1,6 +1,16 @@
 import { createClient } from '@supabase/supabase-js';
 import WebSocket from 'ws';
+import crypto from 'node:crypto';
 import { config } from '../config.js';
+
+const THUMBNAIL_BUCKET = 'thumbnails';
+const EXTENSION_BY_MIME = {
+  'image/jpeg': 'jpg',
+  'image/jpg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+};
 
 let client = null;
 
@@ -84,4 +94,53 @@ export async function deleteRecipe(id) {
   const { error } = await supabase.from('recipes').delete().eq('id', id);
   if (error) throw new Error(`Erreur Supabase : ${error.message}`);
   return true;
+}
+
+/**
+ * Télécharge une miniature depuis son URL d'origine (CDN YouTube/Instagram) et
+ * la ré-upload dans Supabase Storage. Retourne l'URL publique stable, ou null
+ * si l'opération échoue (auquel cas l'appelant garde l'URL originale).
+ *
+ * Nom de fichier = sha256(source_url) tronqué → idempotent : ré-importer la
+ * même URL écrase le fichier précédent.
+ */
+export async function uploadThumbnailFromUrl(sourceUrl, thumbnailUrl) {
+  const supabase = getSupabase();
+  if (!supabase || !thumbnailUrl) return null;
+
+  try {
+    const response = await fetch(thumbnailUrl, { redirect: 'follow' });
+    if (!response.ok) {
+      console.warn(`[thumbnail] fetch ${response.status} sur ${thumbnailUrl}`);
+      return null;
+    }
+    const contentType = (response.headers.get('content-type') ?? 'image/jpeg')
+      .split(';')[0]
+      .trim()
+      .toLowerCase();
+    const ext = EXTENSION_BY_MIME[contentType] ?? 'jpg';
+    const buffer = Buffer.from(await response.arrayBuffer());
+
+    const hash = crypto.createHash('sha256').update(sourceUrl).digest('hex').slice(0, 16);
+    const objectPath = `${hash}.${ext}`;
+
+    const { error: uploadErr } = await supabase.storage
+      .from(THUMBNAIL_BUCKET)
+      .upload(objectPath, buffer, {
+        contentType,
+        upsert: true,
+        cacheControl: '604800', // 7 jours côté CDN Supabase
+      });
+
+    if (uploadErr) {
+      console.warn(`[thumbnail] upload échec : ${uploadErr.message}`);
+      return null;
+    }
+
+    const { data } = supabase.storage.from(THUMBNAIL_BUCKET).getPublicUrl(objectPath);
+    return data?.publicUrl ?? null;
+  } catch (err) {
+    console.warn(`[thumbnail] erreur : ${err.message}`);
+    return null;
+  }
 }

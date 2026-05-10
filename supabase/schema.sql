@@ -55,3 +55,27 @@ create policy "users see own recipe_collections" on recipe_collections
   for all using (
     exists (select 1 from recipes r where r.id = recipe_id and r.user_id = auth.uid())
   );
+
+-- ----------------------------------------------------------------------------
+-- Storage : bucket public pour les miniatures de recettes.
+-- Le serveur Railway téléchargera les thumbnails depuis YouTube/Instagram et
+-- les ré-uploadera ici → URLs stables et permanentes (Instagram expire sinon).
+-- ----------------------------------------------------------------------------
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'thumbnails',
+  'thumbnails',
+  true,
+  5242880, -- 5 Mo, large pour des miniatures
+  array['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+)
+on conflict (id) do update
+  set public = excluded.public,
+      file_size_limit = excluded.file_size_limit,
+      allowed_mime_types = excluded.allowed_mime_types;
+
+-- Lecture publique (le bucket public le permet déjà, mais on est explicite).
+drop policy if exists "public read thumbnails" on storage.objects;
+create policy "public read thumbnails" on storage.objects
+  for select using (bucket_id = 'thumbnails');

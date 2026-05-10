@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { downloadAudio, detectPlatform } from '../pipeline/download.js';
 import { transcribeAudio } from '../pipeline/transcribe.js';
 import { extractRecipe } from '../pipeline/extract.js';
-import { saveRecipe } from '../db/supabase.js';
+import { saveRecipe, uploadThumbnailFromUrl } from '../db/supabase.js';
 
 export const importRouter = Router();
 
@@ -45,13 +45,25 @@ importRouter.post('/import-recipe', async (req, res) => {
       });
     }
 
+    let stableThumbnailUrl = metadata.thumbnailUrl ?? null;
+    if (metadata.thumbnailUrl) {
+      console.log('[import] upload thumbnail dans Supabase Storage…');
+      const stored = await uploadThumbnailFromUrl(url, metadata.thumbnailUrl);
+      if (stored) {
+        stableThumbnailUrl = stored;
+        console.log('[import] thumbnail uploadée');
+      } else {
+        console.warn('[import] thumbnail non uploadée, fallback sur URL CDN d\'origine');
+      }
+    }
+
     let saved = null;
     try {
       saved = await saveRecipe({
         userId,
         sourceUrl: url,
         sourcePlatform: platform,
-        recipe: { ...recipe, thumbnailUrl: metadata.thumbnailUrl },
+        recipe: { ...recipe, thumbnailUrl: stableThumbnailUrl },
         transcript,
       });
       if (saved) console.log(`[import] sauvegardé en DB : ${saved.id}`);
@@ -66,7 +78,7 @@ importRouter.post('/import-recipe', async (req, res) => {
         ...recipe,
         source_url: url,
         source_platform: platform,
-        thumbnail_url: metadata.thumbnailUrl,
+        thumbnail_url: stableThumbnailUrl,
       },
       saved_id: saved?.id ?? null,
     });
