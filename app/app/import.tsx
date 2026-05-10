@@ -1,8 +1,9 @@
 import { useRouter } from 'expo-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -16,8 +17,30 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { api } from '../lib/api';
 import { colors, radii, spacing } from '../lib/theme';
 
+const PUSHEEN_GIFS = [
+  'https://pusheen.com/wp-content/uploads/2017/10/tumblr_owum6vsKMa1qhy6c9o1_1280.gif',
+  'https://pusheen.com/wp-content/uploads/2021/04/How_To_Make_the_Perfect_Birthday_Cake.gif',
+  'https://pusheen.com/wp-content/uploads/2020/11/Pusheens-Guide-to-Baking-Substitutions.gif',
+  'https://pusheen.com/wp-content/uploads/2020/11/Baking-for-Hamsters-1.gif',
+  'https://pusheen.com/wp-content/uploads/2015/03/tumblr_nl86t1fj2w1qhy6c9o1_r2_1280.gif',
+  'https://pusheen.com/wp-content/uploads/2021/12/Pusheen_vs_Udon.gif',
+  'https://pusheen.com/wp-content/uploads/2015/08/tumblr_nsktwmmPYl1qhy6c9o2_r1_540.gif',
+];
+
+// Étapes simulées côté client : le serveur ne stream pas son avancement, on
+// affiche les phases dans l'ordre où le pipeline les exécute, avec des durées
+// indicatives. La dernière reste affichée jusqu'à la réponse finale.
+const IMPORT_STEPS = [
+  { label: 'Téléchargement de la vidéo…', delayMs: 0 },
+  { label: "Transcription de l'audio…", delayMs: 6000 },
+  { label: 'Extraction de la recette par Claude…', delayMs: 16000 },
+  { label: 'Sauvegarde…', delayMs: 26000 },
+];
+
 export default function ImportScreen() {
   const [url, setUrl] = useState('');
+  const [stepIndex, setStepIndex] = useState(0);
+  const [gifUrl, setGifUrl] = useState<string | null>(null);
   const router = useRouter();
   const queryClient = useQueryClient();
 
@@ -32,6 +55,16 @@ export default function ImportScreen() {
       }
     },
   });
+
+  useEffect(() => {
+    if (!mutation.isPending) return;
+    setStepIndex(0);
+    setGifUrl(PUSHEEN_GIFS[Math.floor(Math.random() * PUSHEEN_GIFS.length)]);
+    const timers = IMPORT_STEPS.slice(1).map((step, i) =>
+      setTimeout(() => setStepIndex(i + 1), step.delayMs),
+    );
+    return () => timers.forEach(clearTimeout);
+  }, [mutation.isPending]);
 
   const isValidUrl = /^https?:\/\/(?:[\w-]+\.)*(?:youtube\.com|youtu\.be|instagram\.com)\//i.test(
     url.trim(),
@@ -75,11 +108,12 @@ export default function ImportScreen() {
           </Pressable>
 
           {mutation.isPending && (
-            <View style={styles.statusBox}>
-              <Text style={styles.statusTitle}>En cours…</Text>
-              <Text style={styles.statusText}>
-                Téléchargement de l'audio, transcription, puis extraction de la recette.
-                Compter 30 secondes à 1 minute selon la durée de la vidéo.
+            <View style={styles.progressBox}>
+              {gifUrl && (
+                <Image source={{ uri: gifUrl }} style={styles.progressGif} resizeMode="contain" />
+              )}
+              <Text style={styles.progressStep} numberOfLines={1}>
+                {IMPORT_STEPS[stepIndex].label}
               </Text>
             </View>
           )}
@@ -140,4 +174,20 @@ const styles = StyleSheet.create({
   },
   statusTitle: { fontSize: 14, fontWeight: '600', color: colors.text },
   statusText: { fontSize: 13, color: colors.text, lineHeight: 18 },
+  progressBox: {
+    marginTop: spacing.lg,
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  progressGif: {
+    width: '100%',
+    maxWidth: 320,
+    height: 220,
+  },
+  progressStep: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: colors.text,
+    textAlign: 'center',
+  },
 });
