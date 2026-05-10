@@ -117,6 +117,9 @@ const styles = StyleSheet.create({
     paddingBottom: 96,
     gap: spacing.md,
     flexGrow: 1,
+    width: '100%',
+    maxWidth: 720,
+    alignSelf: 'center',
   },
   empty: {
     flex: 1,

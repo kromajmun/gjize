@@ -167,7 +167,12 @@ const styles = StyleSheet.create({
   },
   errorTitle: { fontSize: 18, fontWeight: '600', color: colors.text },
   errorText: { fontSize: 14, color: colors.textMuted, textAlign: 'center' },
-  content: { paddingBottom: spacing.xxl },
+  content: {
+    paddingBottom: spacing.xxl,
+    width: '100%',
+    maxWidth: 720,
+    alignSelf: 'center',
+  },
   hero: { width: '100%', aspectRatio: 16 / 9, backgroundColor: colors.accentMuted },
   body: { padding: spacing.lg, gap: spacing.lg },
   title: { fontSize: 26, fontWeight: '700', color: colors.text, lineHeight: 32 },

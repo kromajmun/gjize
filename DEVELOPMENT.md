@@ -8,15 +8,16 @@ Ce fichier documente l'avancement, les décisions techniques et tout ce qui ne s
 
 ## État actuel
 
-**Phase : V1 fonctionnelle bout-en-bout**
+**Phase : V1 fonctionnelle bout-en-bout — déploiements en cours**
 
 | Composant | Statut |
 |-----------|--------|
 | Structure du projet | ✅ |
-| Backend Express (Railway) | ✅ Pipeline testé sur YouTube |
+| Backend Express (Railway) | ✅ Live sur `gjize-production.up.railway.app` |
 | Base de données Supabase | ✅ Schéma appliqué, persistance OK |
-| App Expo (iOS / Android / Web) | ✅ Code prêt, à installer |
-| Déploiement Railway | ⏳ |
+| App Expo (iOS / Android / Web) | ✅ Code prêt |
+| App Android standalone (APK via EAS) | 🔧 En cours — eas.json configuré, build à lancer |
+| App Web responsive (Railway) | 🔧 En cours — nixpacks + scripts prêts, service à créer |
 | Test sur Instagram | ⏳ |
 
 ---
@@ -95,10 +96,24 @@ yt-dlp gère YouTube et Instagram public — c'est ce dont l'utilisateur a besoi
 ### Pas d'auth en V1
 Toutes les recettes ont `user_id = null`. Quand on ajoutera l'auth (Supabase magic link probablement), il suffira de scoper `listRecipes` par user_id côté serveur.
 
-### Expo SDK 52 + expo-router
+### Expo SDK 54 + expo-router v6
 - Routing fichier (un fichier = un écran) → moins de boilerplate qu'avec react-navigation.
 - TypeScript par défaut, types pour les routes via `experiments.typedRoutes: true`.
-- Build Web statique (`web.output: "static"`) — déployable sur Vercel/Netlify si besoin.
+- Build Web en mode SPA (`web.output: "single"`) — un seul `index.html`, routing client. Choix forcé par les routes dynamiques (`/recipe/[id]`) dont les IDs sont inconnus à la compilation.
+
+### Distribution Android : APK preview via EAS Build
+- Profil `preview` dans `eas.json` avec `android.buildType: "apk"` (vs `app-bundle` qui ne s'installe pas hors Play Store).
+- Variable `EXPO_PUBLIC_API_URL` injectée directement dans `eas.json` par profil — le `.env` étant gitignored, il n'est pas visible côté serveur EAS.
+- Build cloud, ~15 min, lien APK à télécharger et installer manuellement (sideload). Pas besoin de payer pour Play Store en V1.
+
+### Distribution Web : Railway (2e service)
+- Choix de Railway plutôt que Vercel/Netlify pour garder l'écosystème homogène (1 plateforme = 1 dashboard).
+- Service séparé du backend, root directory = `app/`, build via `expo export --platform web`, serve avec le package `serve` en mode SPA (`-s`).
+- Configuration via `app/nixpacks.toml` pour reproductibilité.
+
+### Responsivité desktop
+- `maxWidth: 720` (640 sur l'import) + `alignSelf: 'center'` sur les conteneurs principaux des 3 écrans.
+- Invisible sur mobile (largeur écran < maxWidth), centre proprement le contenu sur grand écran. Pas de media queries CSS, fait avec les flex props natives de RN — ça marche pareil sur web et natif.
 
 ### Thème : ivoire chaud + accent rouille
 Couleurs définies dans `app/lib/theme.ts`. Volontairement pas le défaut "cream + serif italics" qui sort de tous les modèles génératifs — palette de cuisine méditerranéenne, sobre et lisible.
@@ -158,12 +173,16 @@ Avec 5$ chargés sur chaque API : ~290 imports avant de devoir recharger. À 2 i
 - [x] Schéma Supabase + persistance
 - [x] Endpoints GET/DELETE /recipes
 - [x] App Expo (3 écrans + thème + API client)
-- [ ] Tester l'app sur iPhone via Expo Go
+- [x] Tester l'app sur Android via Expo Go
+- [x] Déploiement backend Railway
+- [x] Pointer l'app prod sur l'URL Railway
+- [x] App responsive desktop (maxWidth centré)
+- [ ] Build APK Android standalone via EAS (preview profile)
+- [ ] Déploiement web Railway (2e service depuis app/)
 - [ ] Tester l'import sur une URL Instagram réelle
-- [ ] Déploiement Railway (push GitHub + deploy from repo)
-- [ ] Pointer l'app prod sur l'URL Railway
 - [ ] (Plus tard) Auth Supabase magic link, multi-user
 - [ ] (Plus tard) Collections, partage entre devices
+- [ ] (Plus tard) Custom domain pour l'app web (gjize.app ?)
 
 ---
 

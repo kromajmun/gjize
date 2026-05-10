@@ -99,7 +99,13 @@ export default function ImportScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   kav: { flex: 1 },
-  content: { padding: spacing.lg, gap: spacing.md },
+  content: {
+    padding: spacing.lg,
+    gap: spacing.md,
+    width: '100%',
+    maxWidth: 640,
+    alignSelf: 'center',
+  },
   label: { fontSize: 14, fontWeight: '600', color: colors.text },
   input: {
     backgroundColor: colors.surface,
