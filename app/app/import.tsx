@@ -33,7 +33,9 @@ export default function ImportScreen() {
     },
   });
 
-  const isValidUrl = /^https?:\/\/.+(youtube\.com|youtu\.be|instagram\.com)/i.test(url.trim());
+  const isValidUrl = /^https?:\/\/(?:[\w-]+\.)*(?:youtube\.com|youtu\.be|instagram\.com)\//i.test(
+    url.trim(),
+  );
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
@@ -54,7 +56,7 @@ export default function ImportScreen() {
             style={styles.input}
             editable={!mutation.isPending}
           />
-          <Text style={styles.hint}>YouTube ou Instagram. TikTok n'est pas supporté pour l'instant.</Text>
+          <Text style={styles.hint}>YouTube ou Instagram.</Text>
 
           <Pressable
             onPress={() => mutation.mutate(url.trim())}

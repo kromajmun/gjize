@@ -15,7 +15,7 @@ App mobile + web qui affiche les recettes importées par le serveur Railway.
 cd app
 cp .env.example .env
 # Édite EXPO_PUBLIC_API_URL — voir le commentaire dans .env.example
-npm install
+npm install --legacy-peer-deps
 ```
 
 **À savoir sur l'URL du backend** :

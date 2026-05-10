@@ -9,7 +9,10 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.gjize.app"
+      "bundleIdentifier": "com.gjize.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.gjize.app"
@@ -23,6 +26,13 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "5c0d4118-3865-4789-9844-41d40e1d4de5"
+      }
+    },
+    "owner": "majmun"
   }
 }

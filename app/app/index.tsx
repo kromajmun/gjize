@@ -1,4 +1,4 @@
-import { Link, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import {
   ActivityIndicator,
@@ -56,12 +56,13 @@ export default function HomeScreen() {
           <RecipeCard recipe={item} onPress={() => router.push(`/recipe/${item.id}`)} />
         )}
       />
-      <Link href="/import" asChild>
-        <Pressable style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}>
-          <Text style={styles.fabIcon}>+</Text>
-          <Text style={styles.fabText}>Importer</Text>
-        </Pressable>
-      </Link>
+      <Pressable
+        onPress={() => router.push('/import')}
+        style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
+      >
+        <Text style={styles.fabIcon}>+</Text>
+        <Text style={styles.fabText}>Importer</Text>
+      </Pressable>
     </SafeAreaView>
   );
 }
@@ -189,7 +190,7 @@ const styles = StyleSheet.create({
   },
   fab: {
     position: 'absolute',
-    bottom: spacing.xl,
+    bottom: spacing.xxl,
     right: spacing.xl,
     flexDirection: 'row',
     alignItems: 'center',
@@ -202,7 +203,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.18,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
+    elevation: 8,
+    zIndex: 10,
   },
   fabPressed: { opacity: 0.85 },
   fabIcon: { color: '#FFF', fontSize: 20, fontWeight: '300', lineHeight: 22 },
