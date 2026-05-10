@@ -21,6 +21,13 @@ Règles strictes :
 
 6. **N'invente jamais** une quantité, une étape ou un ingrédient absent de la transcription. Si tu hésites, omets plutôt qu'inventer.
 
+7. **meal_type** — Catégorise la recette dans une (et une seule) des valeurs suivantes :
+   - "plat" : tout ce qui est salé (entrée, plat principal, accompagnement, apéro, petit-déjeuner salé, sandwich, soupe…)
+   - "dessert" : tout ce qui est sucré (gâteau, biscuit, crème, fruit cuit sucré, glace, viennoiserie…)
+   - "sauce" : sauce, vinaigrette, condiment, marinade qui se prépare seul
+   - "boisson" : cocktail, smoothie, boisson chaude, jus, infusion
+   En cas d'ambiguïté, choisis "plat" par défaut.
+
 Appelle TOUJOURS le tool "save_recipe" avec ta réponse — ne réponds jamais en texte libre.`;
 
 const SAVE_RECIPE_TOOL = {
@@ -30,6 +37,11 @@ const SAVE_RECIPE_TOOL = {
     type: 'object',
     properties: {
       title: { type: 'string', description: 'Titre clair de la recette en français' },
+      meal_type: {
+        type: 'string',
+        enum: ['plat', 'dessert', 'sauce', 'boisson'],
+        description: 'Catégorie de la recette : "plat" pour tout ce qui est salé, "dessert" pour tout ce qui est sucré, "sauce" pour les sauces/condiments seuls, "boisson" pour les cocktails et boissons.',
+      },
       servings: { type: 'integer', description: 'Nombre de portions (omettre si non précisé)' },
       prep_time_minutes: { type: 'integer', description: 'Temps de préparation en minutes (omettre si non précisé)' },
       cook_time_minutes: { type: 'integer', description: 'Temps de cuisson en minutes (omettre si non précisé)' },
@@ -50,7 +62,7 @@ const SAVE_RECIPE_TOOL = {
         items: { type: 'string', description: "Une étape, à l'impératif" },
       },
     },
-    required: ['title', 'ingredients', 'steps'],
+    required: ['title', 'meal_type', 'ingredients', 'steps'],
   },
 };
 
@@ -61,6 +73,7 @@ const SAVE_RECIPE_TOOL = {
  * @param {object} [metadata] - Métadonnées optionnelles { title, description }
  * @returns {Promise<{
  *   title: string,
+ *   meal_type: 'plat' | 'dessert' | 'sauce' | 'boisson',
  *   servings?: number,
  *   prep_time_minutes?: number,
  *   cook_time_minutes?: number,

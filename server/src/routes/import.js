@@ -79,6 +79,8 @@ importRouter.post('/import-recipe', async (req, res) => {
         source_url: url,
         source_platform: platform,
         thumbnail_url: stableThumbnailUrl,
+        // status est appliqué côté DB (défaut 'to_test'), on le renvoie pour cohérence UI.
+        status: saved?.status ?? 'to_test',
       },
       saved_id: saved?.id ?? null,
     });

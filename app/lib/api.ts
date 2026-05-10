@@ -6,6 +6,9 @@ export type Ingredient = {
   unit?: string;
 };
 
+export type MealType = 'plat' | 'dessert' | 'sauce' | 'boisson';
+export type RecipeStatus = 'to_test' | 'validated';
+
 export type RecipeSummary = {
   id: string;
   title: string;
@@ -15,6 +18,8 @@ export type RecipeSummary = {
   prep_time_minutes: number | null;
   cook_time_minutes: number | null;
   servings: number | null;
+  meal_type: MealType;
+  status: RecipeStatus;
   created_at: string;
 };
 
@@ -72,6 +77,12 @@ export const api = {
 
   deleteRecipe: (id: string) =>
     request<{ ok: true }>(`/recipes/${id}`, { method: 'DELETE' }),
+
+  updateRecipe: (id: string, patch: { status?: RecipeStatus; meal_type?: MealType }) =>
+    request<{ recipe: Recipe }>(`/recipes/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }).then((r) => r.recipe),
 };
 
 export { ApiError, API_URL };

@@ -43,6 +43,7 @@ export async function saveRecipe({ userId, sourceUrl, sourcePlatform, recipe, tr
       source_url: sourceUrl,
       source_platform: sourcePlatform,
       title: recipe.title,
+      meal_type: recipe.meal_type ?? 'plat',
       servings: recipe.servings ?? null,
       prep_time_minutes: recipe.prep_time_minutes ?? null,
       cook_time_minutes: recipe.cook_time_minutes ?? null,
@@ -50,6 +51,7 @@ export async function saveRecipe({ userId, sourceUrl, sourcePlatform, recipe, tr
       steps: recipe.steps,
       thumbnail_url: recipe.thumbnailUrl ?? null,
       raw_transcript: transcript,
+      // status omis volontairement → la DB applique le défaut 'to_test'.
     })
     .select()
     .single();
@@ -68,7 +70,7 @@ export async function listRecipes({ limit = 100 } = {}) {
 
   const { data, error } = await supabase
     .from('recipes')
-    .select('id, title, source_url, source_platform, thumbnail_url, prep_time_minutes, cook_time_minutes, servings, created_at')
+    .select('id, title, source_url, source_platform, thumbnail_url, prep_time_minutes, cook_time_minutes, servings, meal_type, status, created_at')
     .order('created_at', { ascending: false })
     .limit(limit);
 
@@ -94,6 +96,42 @@ export async function deleteRecipe(id) {
   const { error } = await supabase.from('recipes').delete().eq('id', id);
   if (error) throw new Error(`Erreur Supabase : ${error.message}`);
   return true;
+}
+
+const ALLOWED_STATUS = new Set(['to_test', 'validated']);
+const ALLOWED_MEAL_TYPE = new Set(['plat', 'dessert', 'sauce', 'boisson']);
+
+/**
+ * Met à jour partiellement une recette (status et/ou meal_type).
+ * Renvoie la ligne mise à jour, ou null si Supabase est désactivé / id introuvable.
+ */
+export async function updateRecipe(id, { status, mealType } = {}) {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+
+  const patch = { updated_at: new Date().toISOString() };
+  if (status !== undefined) {
+    if (!ALLOWED_STATUS.has(status)) {
+      throw new Error(`status invalide (attendu: to_test | validated, reçu: ${status})`);
+    }
+    patch.status = status;
+  }
+  if (mealType !== undefined) {
+    if (!ALLOWED_MEAL_TYPE.has(mealType)) {
+      throw new Error(`meal_type invalide (attendu: plat | dessert | sauce | boisson, reçu: ${mealType})`);
+    }
+    patch.meal_type = mealType;
+  }
+
+  const { data, error } = await supabase
+    .from('recipes')
+    .update(patch)
+    .eq('id', id)
+    .select()
+    .maybeSingle();
+
+  if (error) throw new Error(`Erreur Supabase : ${error.message}`);
+  return data;
 }
 
 /**

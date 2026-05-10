@@ -13,8 +13,15 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { api, Ingredient } from '../../lib/api';
+import { api, Ingredient, MealType, Recipe, RecipeStatus } from '../../lib/api';
 import { colors, radii, spacing } from '../../lib/theme';
+
+const MEAL_TYPE_LABEL: Record<MealType, string> = {
+  plat: 'Plat',
+  dessert: 'Dessert',
+  sauce: 'Sauce',
+  boisson: 'Boisson',
+};
 
 export default function RecipeScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -31,6 +38,26 @@ export default function RecipeScreen() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['recipes'] });
       router.back();
+    },
+  });
+
+  const statusMutation = useMutation({
+    mutationFn: (next: RecipeStatus) => api.updateRecipe(id, { status: next }),
+    onMutate: async (next) => {
+      // Optimistic update : on bascule l'UI immédiatement, le rollback gérera l'échec.
+      await queryClient.cancelQueries({ queryKey: ['recipe', id] });
+      const previous = queryClient.getQueryData<Recipe>(['recipe', id]);
+      if (previous) {
+        queryClient.setQueryData<Recipe>(['recipe', id], { ...previous, status: next });
+      }
+      return { previous };
+    },
+    onError: (_err, _next, ctx) => {
+      if (ctx?.previous) queryClient.setQueryData(['recipe', id], ctx.previous);
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['recipes'] });
+      queryClient.invalidateQueries({ queryKey: ['recipe', id] });
     },
   });
 
@@ -84,6 +111,7 @@ export default function RecipeScreen() {
         )}
 
         <View style={styles.body}>
+          <Text style={styles.eyebrow}>{MEAL_TYPE_LABEL[recipe.meal_type]}</Text>
           <Text style={styles.title}>{recipe.title}</Text>
 
           <View style={styles.metaRow}>
@@ -91,6 +119,27 @@ export default function RecipeScreen() {
               <Text style={styles.sourceLink}>Voir la vidéo source ↗</Text>
             </Pressable>
           </View>
+
+          <Pressable
+            onPress={() =>
+              statusMutation.mutate(recipe.status === 'to_test' ? 'validated' : 'to_test')
+            }
+            disabled={statusMutation.isPending}
+            style={({ pressed }) => [
+              styles.statusToggle,
+              recipe.status === 'validated' && styles.statusToggleValidated,
+              pressed && { opacity: 0.7 },
+            ]}
+          >
+            <Text
+              style={[
+                styles.statusToggleText,
+                recipe.status === 'validated' && styles.statusToggleTextValidated,
+              ]}
+            >
+              {recipe.status === 'to_test' ? '◯ À tester · marquer validée' : '✓ Validée · marquer à tester'}
+            </Text>
+          </Pressable>
 
           {(totalMinutes || recipe.servings) && (
             <View style={styles.statsRow}>
@@ -175,9 +224,37 @@ const styles = StyleSheet.create({
   },
   hero: { width: '100%', aspectRatio: 16 / 9, backgroundColor: colors.accentMuted },
   body: { padding: spacing.lg, gap: spacing.lg },
+  eyebrow: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.accent,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginBottom: -spacing.md,
+  },
   title: { fontSize: 26, fontWeight: '700', color: colors.text, lineHeight: 32 },
   metaRow: { marginTop: -spacing.sm },
   sourceLink: { color: colors.accent, fontSize: 14, fontWeight: '500' },
+  statusToggle: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.accent,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radii.md,
+  },
+  statusToggleValidated: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.success,
+  },
+  statusToggleText: {
+    color: '#FFF',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  statusToggleTextValidated: {
+    color: colors.success,
+  },
   statsRow: {
     flexDirection: 'row',
     gap: spacing.md,

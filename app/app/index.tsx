@@ -1,3 +1,4 @@
+import { useState, useMemo } from 'react';
 import { useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -11,24 +12,46 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { api, RecipeSummary } from '../lib/api';
+import { api, MealType, RecipeStatus, RecipeSummary } from '../lib/api';
 import { colors, radii, spacing } from '../lib/theme';
+
+type StatusFilter = 'all' | RecipeStatus;
+
+const MEAL_TYPE_LABEL: Record<MealType, string> = {
+  plat: 'Plat',
+  dessert: 'Dessert',
+  sauce: 'Sauce',
+  boisson: 'Boisson',
+};
 
 export default function HomeScreen() {
   const router = useRouter();
+  const [filter, setFilter] = useState<StatusFilter>('all');
+
   const { data, isLoading, error, refetch, isRefetching } = useQuery({
     queryKey: ['recipes'],
     queryFn: api.listRecipes,
   });
 
+  const filtered = useMemo(() => {
+    if (!data) return [];
+    if (filter === 'all') return data;
+    return data.filter((r) => r.status === filter);
+  }, [data, filter]);
+
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
       <FlatList
-        data={data ?? []}
+        data={filtered}
         keyExtractor={(r) => r.id}
         contentContainerStyle={styles.listContent}
         refreshControl={
           <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={colors.accent} />
+        }
+        ListHeaderComponent={
+          data && data.length > 0 ? (
+            <FilterBar filter={filter} onChange={setFilter} />
+          ) : null
         }
         ListEmptyComponent={
           isLoading ? (
@@ -43,11 +66,20 @@ export default function HomeScreen() {
                 Vérifie que le backend tourne et que EXPO_PUBLIC_API_URL pointe au bon endroit.
               </Text>
             </View>
-          ) : (
+          ) : data && data.length === 0 ? (
             <View style={styles.empty}>
               <Text style={styles.emptyTitle}>Aucune recette pour l'instant</Text>
               <Text style={styles.emptyText}>
                 Colle un lien YouTube ou Instagram pour importer ta première recette.
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.empty}>
+              <Text style={styles.emptyTitle}>Rien dans ce filtre</Text>
+              <Text style={styles.emptyText}>
+                {filter === 'to_test'
+                  ? 'Toutes tes recettes sont marquées comme validées.'
+                  : 'Aucune recette validée pour l’instant.'}
               </Text>
             </View>
           )
@@ -67,6 +99,32 @@ export default function HomeScreen() {
   );
 }
 
+function FilterBar({ filter, onChange }: { filter: StatusFilter; onChange: (f: StatusFilter) => void }) {
+  const options: { value: StatusFilter; label: string }[] = [
+    { value: 'all', label: 'Toutes' },
+    { value: 'to_test', label: 'À tester' },
+    { value: 'validated', label: 'Validées' },
+  ];
+  return (
+    <View style={styles.filterBar}>
+      {options.map((opt) => {
+        const active = filter === opt.value;
+        return (
+          <Pressable
+            key={opt.value}
+            onPress={() => onChange(opt.value)}
+            style={[styles.filterPill, active && styles.filterPillActive]}
+          >
+            <Text style={[styles.filterPillText, active && styles.filterPillTextActive]}>
+              {opt.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 function RecipeCard({ recipe, onPress }: { recipe: RecipeSummary; onPress: () => void }) {
   const totalMinutes =
     (recipe.prep_time_minutes ?? 0) + (recipe.cook_time_minutes ?? 0) || null;
@@ -76,14 +134,24 @@ function RecipeCard({ recipe, onPress }: { recipe: RecipeSummary; onPress: () =>
       style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
       onPress={onPress}
     >
-      {recipe.thumbnail_url ? (
-        <Image source={{ uri: recipe.thumbnail_url }} style={styles.cardImage} />
-      ) : (
-        <View style={[styles.cardImage, styles.cardImagePlaceholder]}>
-          <Text style={styles.cardImagePlaceholderText}>🍳</Text>
-        </View>
-      )}
+      <View>
+        {recipe.thumbnail_url ? (
+          <Image source={{ uri: recipe.thumbnail_url }} style={styles.cardImage} />
+        ) : (
+          <View style={[styles.cardImage, styles.cardImagePlaceholder]}>
+            <Text style={styles.cardImagePlaceholderText}>🍳</Text>
+          </View>
+        )}
+        {recipe.status === 'to_test' && (
+          <View style={styles.cardStatusBadge}>
+            <Text style={styles.cardStatusBadgeText}>À tester</Text>
+          </View>
+        )}
+      </View>
       <View style={styles.cardBody}>
+        <View style={styles.cardTopRow}>
+          <Text style={styles.cardMealType}>{MEAL_TYPE_LABEL[recipe.meal_type]}</Text>
+        </View>
         <Text style={styles.cardTitle} numberOfLines={2}>
           {recipe.title}
         </Text>
@@ -148,6 +216,31 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     fontStyle: 'italic',
   },
+  filterBar: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+    marginBottom: spacing.md,
+  },
+  filterPill: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: 999,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  filterPillActive: {
+    backgroundColor: colors.accent,
+    borderColor: colors.accent,
+  },
+  filterPillText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: colors.textMuted,
+  },
+  filterPillTextActive: {
+    color: '#FFF',
+  },
   card: {
     flexDirection: 'row',
     backgroundColor: colors.surface,
@@ -167,10 +260,41 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   cardImagePlaceholderText: { fontSize: 32 },
+  cardStatusBadge: {
+    position: 'absolute',
+    top: spacing.xs,
+    left: spacing.xs,
+    backgroundColor: colors.accent,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radii.sm,
+  },
+  cardStatusBadgeText: {
+    color: '#FFF',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
   cardBody: {
     flex: 1,
     padding: spacing.md,
     justifyContent: 'space-between',
+  },
+  cardTopRow: {
+    flexDirection: 'row',
+    marginBottom: spacing.xs,
+  },
+  cardMealType: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.accent,
+    backgroundColor: colors.accentMuted,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radii.sm,
+    overflow: 'hidden',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   cardTitle: {
     fontSize: 16,

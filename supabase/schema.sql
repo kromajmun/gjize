@@ -22,6 +22,35 @@ create table if not exists recipes (
 
 create index if not exists recipes_user_idx on recipes(user_id, created_at desc);
 
+-- Catégorisation V1.1 : type de plat (auto à l'import) + statut (manuel).
+-- ALTER idempotent pour pouvoir ré-exécuter ce fichier sur une base existante.
+alter table recipes add column if not exists meal_type text;
+alter table recipes add column if not exists status text;
+
+alter table recipes
+  drop constraint if exists recipes_meal_type_check;
+alter table recipes
+  add constraint recipes_meal_type_check
+  check (meal_type in ('plat', 'dessert', 'sauce', 'boisson'));
+
+alter table recipes
+  drop constraint if exists recipes_status_check;
+alter table recipes
+  add constraint recipes_status_check
+  check (status in ('to_test', 'validated'));
+
+alter table recipes alter column meal_type set default 'plat';
+alter table recipes alter column status set default 'to_test';
+
+update recipes set meal_type = 'plat' where meal_type is null;
+update recipes set status = 'to_test' where status is null;
+
+alter table recipes alter column meal_type set not null;
+alter table recipes alter column status set not null;
+
+create index if not exists recipes_meal_type_idx on recipes(meal_type);
+create index if not exists recipes_status_idx on recipes(status);
+
 create table if not exists collections (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references auth.users(id) on delete cascade,

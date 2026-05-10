@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { listRecipes, getRecipeById, deleteRecipe } from '../db/supabase.js';
+import { listRecipes, getRecipeById, deleteRecipe, updateRecipe } from '../db/supabase.js';
 
 export const recipesRouter = Router();
 
@@ -21,6 +21,21 @@ recipesRouter.get('/recipes/:id', async (req, res) => {
   } catch (err) {
     console.error('[recipes] get :', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+recipesRouter.patch('/recipes/:id', async (req, res) => {
+  try {
+    const { status, meal_type: mealType } = req.body ?? {};
+    if (status === undefined && mealType === undefined) {
+      return res.status(400).json({ error: 'Aucun champ à mettre à jour (status ou meal_type).' });
+    }
+    const recipe = await updateRecipe(req.params.id, { status, mealType });
+    if (!recipe) return res.status(404).json({ error: 'Recette introuvable.' });
+    res.json({ recipe });
+  } catch (err) {
+    console.error('[recipes] patch :', err);
+    res.status(400).json({ error: err.message });
   }
 });
 

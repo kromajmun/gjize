@@ -17,7 +17,8 @@ Ce fichier documente l'avancement, les décisions techniques et tout ce qui ne s
 | Base de données Supabase | ✅ Schéma appliqué, persistance OK |
 | App Expo (iOS / Android / Web) | ✅ Code prêt |
 | App Android standalone (APK via EAS) | 🔧 En cours — eas.json configuré, build à lancer |
-| App Web responsive (Railway) | 🔧 En cours — nixpacks + scripts prêts, service à créer |
+| App Web responsive (Railway) | ✅ Live, SPA mode |
+| Catégorisation (meal_type auto + status manuel) | ✅ V1.1 |
 | Test sur Instagram | ⏳ |
 
 ---
@@ -115,6 +116,13 @@ Toutes les recettes ont `user_id = null`. Quand on ajoutera l'auth (Supabase mag
 - `maxWidth: 720` (640 sur l'import) + `alignSelf: 'center'` sur les conteneurs principaux des 3 écrans.
 - Invisible sur mobile (largeur écran < maxWidth), centre proprement le contenu sur grand écran. Pas de media queries CSS, fait avec les flex props natives de RN — ça marche pareil sur web et natif.
 
+### Catégorisation V1.1 : `meal_type` auto + `status` manuel
+- **`meal_type`** (`plat` | `dessert` | `sauce` | `boisson`) : extrait automatiquement par Claude pendant `extractRecipe`. Enum strict côté tool schema → pas d'incohérences ("italien" / "italienne" / "Italie"). Défaut `plat` si Claude est en panne.
+- **`status`** (`to_test` | `validated`) : entièrement manuel, défaut DB `to_test` à l'import. Toggle d'un tap dans la fiche détaillée.
+- **Pourquoi pas plus d'axes** (cuisine, régime, tags libres) : risque d'incohérences pour peu de gain — l'utilisateur sait déjà végétaliser, fusionne souvent les cuisines, et redoute la dérive sémantique des tags libres.
+- **Schéma DB** : valeurs ASCII (`to_test` / `validated`) pour éviter les pièges encoding/comparaison ; mapping vers labels FR ("À tester" / "Validée") fait dans l'UI uniquement.
+- **Endpoint** : `PATCH /recipes/:id` accepte `{ status, meal_type }` partiel. Toggle status dans la fiche utilise un optimistic update React Query.
+
 ### Thème : ivoire chaud + accent rouille
 Couleurs définies dans `app/lib/theme.ts`. Volontairement pas le défaut "cream + serif italics" qui sort de tous les modèles génératifs — palette de cuisine méditerranéenne, sobre et lisible.
 
@@ -146,6 +154,7 @@ Couleurs définies dans `app/lib/theme.ts`. Volontairement pas le défaut "cream
 | `POST` | `/import-recipe` | `{ recipe, saved_id }` — body `{ url }` |
 | `GET` | `/recipes` | `{ recipes: [...] }` — liste antéchronologique |
 | `GET` | `/recipes/:id` | `{ recipe }` — recette complète + ingredients/steps |
+| `PATCH` | `/recipes/:id` | `{ recipe }` — body `{ status?, meal_type? }` (partiel) |
 | `DELETE` | `/recipes/:id` | `{ ok: true }` |
 
 ---
@@ -180,7 +189,9 @@ Avec 5$ chargés sur chaque API : ~290 imports avant de devoir recharger. À 2 i
 - [x] Build APK Android standalone via EAS (preview profile)
 - [x] Déploiement web Railway (2e service depuis app/)
 - [x] Stockage des miniatures dans Supabase Storage (vs CDN direct)
+- [x] Catégorisation V1.1 : `meal_type` auto à l'import + `status` manuel (à tester / validée)
 - [ ] Tester l'import sur une URL Instagram réelle
+- [ ] (Prochain chantier) Recherche par ingrédient — page liste de tous les ingrédients distincts + filtre par ingrédient ; nécessite normalisation (`canonical_name` extrait par Claude + table jointure).
 - [ ] (Plus tard) Auth Supabase magic link, multi-user
 - [ ] (Plus tard) Collections, partage entre devices
 - [ ] (Plus tard) Custom domain pour l'app web (gjize.app ?)
