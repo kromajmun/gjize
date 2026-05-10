@@ -8,8 +8,11 @@ import { config } from '../config.js';
 
 const THUMBNAIL_BUCKET = 'thumbnails';
 const SECRETS_BUCKET = 'secrets';
-const INSTAGRAM_COOKIES_OBJECT = 'instagram_cookies.txt';
 const COOKIES_CACHE_TTL_MS = 60_000; // 1 min — assez court pour que la rotation soit prise en compte rapidement
+const COOKIES_OBJECT_BY_PLATFORM = {
+  instagram: 'instagram_cookies.txt',
+  youtube: 'youtube_cookies.txt',
+};
 
 const EXTENSION_BY_MIME = {
   'image/jpeg': 'jpg',
@@ -19,7 +22,13 @@ const EXTENSION_BY_MIME = {
   'image/gif': 'gif',
 };
 
-let cookiesCache = { fetchedAt: 0, localPath: null };
+// Cache par plateforme : on retient le dernier chemin local + un timestamp.
+// `localPath: null` mis en cache aussi → évite de re-tenter Storage en boucle si
+// le fichier n'existe pas (cas YouTube quand l'utilisateur n'a pas de cookies).
+const cookiesCache = {
+  instagram: { fetchedAt: 0, localPath: null },
+  youtube: { fetchedAt: 0, localPath: null },
+};
 
 let client = null;
 
@@ -219,49 +228,53 @@ export async function deleteRecipe(id) {
 }
 
 /**
- * Télécharge le fichier instagram_cookies.txt depuis le bucket privé `secrets`
- * et l'écrit dans /tmp/. Renvoie le chemin local, ou null si le fichier
- * n'existe pas dans Storage.
+ * Télécharge le fichier de cookies (Netscape) d'une plateforme depuis le bucket
+ * privé `secrets` et l'écrit dans /tmp/. Renvoie le chemin local, ou null si le
+ * fichier n'existe pas dans Storage (cookies optionnels selon les plateformes).
  *
- * Utilise un cache TTL court (60s) pour éviter de retélécharger à chaque
+ * Cache TTL court (60s) par plateforme pour éviter de retélécharger à chaque
  * appel — la rotation est donc prise en compte au pire après 1 min.
  *
- * Pour rotater les cookies : remplace le fichier dans Supabase Dashboard >
- * Storage > secrets > instagram_cookies.txt (drag-and-drop ou Replace).
+ * Pour rotater : remplace le fichier dans Supabase Dashboard > Storage >
+ * secrets > {platform}_cookies.txt (drag-and-drop / Replace).
  */
-export async function getInstagramCookiesPath() {
+export async function getCookiesPath(platform) {
+  const objectName = COOKIES_OBJECT_BY_PLATFORM[platform];
+  if (!objectName) return null;
+
   const supabase = getSupabase();
   if (!supabase) return null;
 
+  const cache = cookiesCache[platform];
   const now = Date.now();
-  if (cookiesCache.localPath && now - cookiesCache.fetchedAt < COOKIES_CACHE_TTL_MS) {
-    return cookiesCache.localPath;
+  if (now - cache.fetchedAt < COOKIES_CACHE_TTL_MS) {
+    return cache.localPath; // peut être null (absent confirmé) → pas de retry tant que TTL non expiré
   }
 
-  const { data, error } = await supabase.storage
-    .from(SECRETS_BUCKET)
-    .download(INSTAGRAM_COOKIES_OBJECT);
+  const { data, error } = await supabase.storage.from(SECRETS_BUCKET).download(objectName);
 
   if (error) {
     // 404 attendu si le fichier n'a jamais été uploadé.
-    console.warn(`[cookies] indisponibles dans Storage : ${error.message}`);
-    cookiesCache = { fetchedAt: now, localPath: null };
+    console.warn(`[cookies:${platform}] indisponibles dans Storage : ${error.message}`);
+    cookiesCache[platform] = { fetchedAt: now, localPath: null };
     return null;
   }
 
   const text = await data.text();
   const dir = path.join(tmpdir(), 'gjize-secrets');
   await mkdir(dir, { recursive: true });
-  const localPath = path.join(dir, 'instagram_cookies.txt');
+  const localPath = path.join(dir, objectName);
   await writeFile(localPath, text, 'utf8');
 
-  cookiesCache = { fetchedAt: now, localPath };
+  cookiesCache[platform] = { fetchedAt: now, localPath };
   return localPath;
 }
 
-/** Force le prochain getInstagramCookiesPath() à retélécharger depuis Storage. */
-export function invalidateInstagramCookiesCache() {
-  cookiesCache = { fetchedAt: 0, localPath: null };
+/** Force le prochain getCookiesPath(platform) à retélécharger depuis Storage. */
+export function invalidateCookiesCache(platform) {
+  if (cookiesCache[platform]) {
+    cookiesCache[platform] = { fetchedAt: 0, localPath: null };
+  }
 }
 
 /**

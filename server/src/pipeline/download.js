@@ -4,21 +4,30 @@ import { mkdtemp, rm, stat, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import youtubeDlExec from 'youtube-dl-exec';
-import { getInstagramCookiesPath, invalidateInstagramCookiesCache } from '../db/supabase.js';
+import { getCookiesPath, invalidateCookiesCache } from '../db/supabase.js';
 
 const execAsync = promisify(exec);
 
-// Patterns d'erreur yt-dlp qui signalent que les cookies sont expirés / absents.
-// Détectés sur Instagram principalement — on remonte un message actionnable.
-const AUTH_ERROR_PATTERNS = [
-  /rate-?limit reached or login required/i,
-  /login required/i,
-  /requested content is not available/i,
-  /this content isn't available/i,
-];
+// Patterns d'erreur yt-dlp qui signalent un besoin d'auth / cookies, par plateforme.
+// On les détecte pour invalider le cache et remonter un message actionnable à l'utilisateur.
+const AUTH_ERROR_PATTERNS = {
+  instagram: [
+    /rate-?limit reached or login required/i,
+    /login required/i,
+    /requested content is not available/i,
+    /this content isn't available/i,
+  ],
+  youtube: [
+    /sign in to confirm (you'?re|that you are) not a bot/i,
+    /confirm you'?re not a bot/i,
+    /this video is unavailable/i, // souvent corrélé au bot check côté Railway
+    /use --cookies/i, // yt-dlp suggère lui-même de fournir des cookies
+  ],
+};
 
-function isInstagramAuthError(message) {
-  return AUTH_ERROR_PATTERNS.some((re) => re.test(message ?? ''));
+function isAuthError(platform, message) {
+  const patterns = AUTH_ERROR_PATTERNS[platform] ?? [];
+  return patterns.some((re) => re.test(message ?? ''));
 }
 
 const WHISPER_MAX_BYTES = 24 * 1024 * 1024; // 24 Mo de marge sous la limite 25 Mo de Whisper
@@ -53,18 +62,17 @@ export async function downloadAudio(url) {
 
   const cleanup = () => rm(workDir, { recursive: true, force: true });
 
-  // Pour Instagram, on injecte les cookies depuis Supabase Storage si dispo —
-  // sinon yt-dlp retournera "rate-limit reached or login required" et on
-  // remontera un message explicite pour rotater les cookies.
-  let cookiesPath = null;
-  if (platform === 'instagram') {
-    cookiesPath = await getInstagramCookiesPath();
-    if (!cookiesPath) {
-      await cleanup();
-      throw new Error(
-        "Instagram nécessite des cookies d'authentification. Upload un fichier instagram_cookies.txt (format Netscape) dans Supabase Storage > bucket secrets.",
-      );
-    }
+  // Cookies depuis Supabase Storage :
+  // - Instagram : obligatoires (yt-dlp échoue d'office sans).
+  // - YouTube : optionnels mais utilisés si présents — depuis Railway, YouTube
+  //   bloque souvent avec "Sign in to confirm you're not a bot" sur IP datacenter.
+  //   Si l'utilisateur a uploadé youtube_cookies.txt, on l'injecte d'emblée.
+  let cookiesPath = await getCookiesPath(platform);
+  if (platform === 'instagram' && !cookiesPath) {
+    await cleanup();
+    throw new Error(
+      "Instagram nécessite des cookies d'authentification. Upload un fichier instagram_cookies.txt (format Netscape) dans Supabase Storage > bucket secrets.",
+    );
   }
 
   const baseOpts = {
@@ -97,21 +105,32 @@ export async function downloadAudio(url) {
     });
   } catch (err) {
     await cleanup();
-    if (platform === 'instagram') {
-      // Si yt-dlp signale un problème d'auth, on invalide le cache pour qu'au
-      // prochain essai on retéléchargera les cookies depuis Storage (au cas où
-      // l'utilisateur vient de les rotater).
-      if (isInstagramAuthError(err.message ?? err.stderr)) {
-        invalidateInstagramCookiesCache();
+    const errMsg = err.message ?? err.stderr ?? '';
+    // Si yt-dlp signale un problème d'auth, on invalide le cache pour qu'au
+    // prochain essai on retéléchargera les cookies depuis Storage (au cas où
+    // l'utilisateur vient de les rotater).
+    if (isAuthError(platform, errMsg)) {
+      invalidateCookiesCache(platform);
+      if (platform === 'instagram') {
         throw new Error(
           'Cookies Instagram expirés ou invalides. Va dans Supabase Dashboard > Storage > secrets > instagram_cookies.txt et remplace le fichier (export Netscape depuis Chrome avec ton compte dédié).',
         );
       }
+      if (platform === 'youtube') {
+        const action = cookiesPath
+          ? 'remplace le fichier (export Netscape depuis Chrome avec un compte YouTube — idéalement dédié)'
+          : 'upload un fichier youtube_cookies.txt (format Netscape, export depuis Chrome avec un compte YouTube — idéalement dédié)';
+        throw new Error(
+          `YouTube demande une vérification "I'm not a bot" (typique sur IP Railway). Va dans Supabase Dashboard > Storage > secrets et ${action}.`,
+        );
+      }
+    }
+    if (platform === 'instagram') {
       throw new Error(
-        `Échec du téléchargement Instagram. Cette URL est peut-être privée ou inaccessible. Détail : ${err.message}`,
+        `Échec du téléchargement Instagram. Cette URL est peut-être privée ou inaccessible. Détail : ${errMsg}`,
       );
     }
-    throw new Error(`Échec du téléchargement (${platform}) : ${err.message}`);
+    throw new Error(`Échec du téléchargement (${platform}) : ${errMsg}`);
   }
 
   const { size } = await stat(audioPath);
