@@ -20,6 +20,7 @@ Ce fichier documente l'avancement, les décisions techniques et tout ce qui ne s
 | App Web responsive (Railway) | ✅ Live, SPA mode |
 | Catégorisation (meal_type auto + status manuel) | ✅ V1.1 |
 | Catalogue ingrédients normalisé (recherche, regroupement) | ✅ V1.2 |
+| Filtres + tri + recherche sur la liste de recettes | ✅ V1.3 |
 | Test sur Instagram | ⏳ |
 
 ---
@@ -147,6 +148,15 @@ Toutes les recettes ont `user_id = null`. Quand on ajoutera l'auth (Supabase mag
 - **Lecture côté app** : `getRecipeById` joint `recipe_ingredients` + `ingredients` pour exposer `ingredient_id` à l'UI. Si la jointure est vide (recette pré-migration), l'app retombe sur le jsonb. Les ingrédients tappables (couleur accent) signalent qu'on peut naviguer vers `/ingredients/:id`.
 - **Navigation** : refonte en bottom tabs (`(tabs)/index` + `(tabs)/ingredients`). Le Stack racine garde `import`, `recipe/[id]` et `ingredients/[id]` au-dessus pour les vues détaillées.
 
+### Filtres / tri / recherche V1.3 : tout côté client
+
+- **Pourquoi côté client** : `listRecipes` plafonne à 100 entrées, c'est négligeable. On évite un aller-retour réseau à chaque keystroke / changement de pill, et on garde l'écran réactif quand le réseau est lent.
+- **Axes** : 4 contrôles cumulables — recherche par titre (substring case-insensitive), filtre statut (`Toutes` / `À tester` / `Validées`), filtre type de plat (`Tous types` / `Plats` / `Desserts` / `Sauces` / `Boissons`), tri (`Plus récentes` / `Plus anciennes` / `A → Z`).
+- **Cumul** : un seul `useMemo` applique tous les filtres en chaîne puis trie. Pas de logique async, pas de cache, le réétat dérivé est instantané.
+- **Tri alphabétique** : `localeCompare(b, 'fr', { sensitivity: 'base' })` — gère les accents (é équivalent à e pour le classement) et la casse. Important pour ne pas voir "Île flottante" relégué après "Zucchini".
+- **UI** : barre de recherche + une seule rangée de 3 dropdowns (Statut / Type / Tri). Chaque dropdown ouvre une `Modal` plein écran avec backdrop semi-opaque et carte centrée listant les options ; l'option courante est marquée d'un check. Choix dropdown plutôt que pills horizontales pour économiser l'espace vertical (gain ~80px) et garder le header compact même quand on ajoutera d'autres axes. Header sticky (sorti de la `FlatList`, pas en `ListHeaderComponent`) pour ne pas perdre le focus du `TextInput` au re-render.
+- **Empty state contextualisé** : "Aucune recette" si la base est vide, "Rien ne correspond" si les filtres excluent tout.
+
 ### Catégorisation V1.1 : `meal_type` auto + `status` manuel
 - **`meal_type`** (`plat` | `dessert` | `sauce` | `boisson`) : extrait automatiquement par Claude pendant `extractRecipe`. Enum strict côté tool schema → pas d'incohérences ("italien" / "italienne" / "Italie"). Défaut `plat` si Claude est en panne.
 - **`status`** (`to_test` | `validated`) : entièrement manuel, défaut DB `to_test` à l'import. Toggle d'un tap dans la fiche détaillée.
@@ -225,6 +235,7 @@ Avec 5$ chargés sur chaque API : ~290 imports avant de devoir recharger. À 2 i
 - [x] Catégorisation V1.1 : `meal_type` auto à l'import + `status` manuel (à tester / validée)
 - [x] Catalogue ingrédients V1.2 : tables normalisées, recherche, page dédiée, ingrédients tappables sur la fiche recette
 - [x] Auth Instagram via cookies depuis Supabase Storage (compte dédié, rotation manuelle via dashboard)
+- [x] Filtres / tri / recherche sur la liste de recettes (V1.3)
 - [ ] Tester l'import sur une URL Instagram réelle
 - [ ] (Plus tard) Auth Supabase magic link, multi-user
 - [ ] (Plus tard) Collections, partage entre devices

@@ -5,10 +5,12 @@ import {
   ActivityIndicator,
   FlatList,
   Image,
+  Modal,
   Pressable,
   RefreshControl,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -16,6 +18,8 @@ import { api, MealType, RecipeStatus, RecipeSummary } from '../../lib/api';
 import { colors, radii, spacing } from '../../lib/theme';
 
 type StatusFilter = 'all' | RecipeStatus;
+type MealTypeFilter = 'all' | MealType;
+type SortBy = 'recent' | 'oldest' | 'alpha';
 
 const MEAL_TYPE_LABEL: Record<MealType, string> = {
   plat: 'Plat',
@@ -24,9 +28,32 @@ const MEAL_TYPE_LABEL: Record<MealType, string> = {
   boisson: 'Boisson',
 };
 
+const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
+  { value: 'all', label: 'Toutes' },
+  { value: 'to_test', label: 'À tester' },
+  { value: 'validated', label: 'Validées' },
+];
+
+const MEAL_TYPE_OPTIONS: { value: MealTypeFilter; label: string }[] = [
+  { value: 'all', label: 'Tous types' },
+  { value: 'plat', label: 'Plats' },
+  { value: 'dessert', label: 'Desserts' },
+  { value: 'sauce', label: 'Sauces' },
+  { value: 'boisson', label: 'Boissons' },
+];
+
+const SORT_OPTIONS: { value: SortBy; label: string }[] = [
+  { value: 'recent', label: 'Plus récentes' },
+  { value: 'oldest', label: 'Plus anciennes' },
+  { value: 'alpha', label: 'A → Z' },
+];
+
 export default function HomeScreen() {
   const router = useRouter();
-  const [filter, setFilter] = useState<StatusFilter>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [mealTypeFilter, setMealTypeFilter] = useState<MealTypeFilter>('all');
+  const [sortBy, setSortBy] = useState<SortBy>('recent');
+  const [search, setSearch] = useState('');
 
   const { data, isLoading, error, refetch, isRefetching } = useQuery({
     queryKey: ['recipes'],
@@ -35,23 +62,69 @@ export default function HomeScreen() {
 
   const filtered = useMemo(() => {
     if (!data) return [];
-    if (filter === 'all') return data;
-    return data.filter((r) => r.status === filter);
-  }, [data, filter]);
+    let arr = data;
+    if (statusFilter !== 'all') arr = arr.filter((r) => r.status === statusFilter);
+    if (mealTypeFilter !== 'all') arr = arr.filter((r) => r.meal_type === mealTypeFilter);
+    const q = search.trim().toLowerCase();
+    if (q) arr = arr.filter((r) => r.title.toLowerCase().includes(q));
+
+    const sorted = [...arr];
+    if (sortBy === 'recent') {
+      sorted.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+    } else if (sortBy === 'oldest') {
+      sorted.sort((a, b) => (a.created_at < b.created_at ? -1 : 1));
+    } else {
+      // localeCompare 'fr' gère correctement l'ordre des accents (é < f).
+      sorted.sort((a, b) => a.title.localeCompare(b.title, 'fr', { sensitivity: 'base' }));
+    }
+    return sorted;
+  }, [data, statusFilter, mealTypeFilter, sortBy, search]);
+
+  const showControls = !!data && data.length > 0;
+  const noMatch = !!data && data.length > 0 && filtered.length === 0;
 
   return (
     <SafeAreaView style={styles.container}>
+      {showControls && (
+        <View style={styles.controls}>
+          <TextInput
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Rechercher une recette…"
+            placeholderTextColor={colors.textMuted}
+            style={styles.search}
+            autoCapitalize="none"
+            autoCorrect={false}
+            clearButtonMode="while-editing"
+          />
+          <View style={styles.dropdownRow}>
+            <Dropdown
+              title="Statut"
+              options={STATUS_OPTIONS}
+              value={statusFilter}
+              onChange={setStatusFilter}
+            />
+            <Dropdown
+              title="Type"
+              options={MEAL_TYPE_OPTIONS}
+              value={mealTypeFilter}
+              onChange={setMealTypeFilter}
+            />
+            <Dropdown
+              title="Tri"
+              options={SORT_OPTIONS}
+              value={sortBy}
+              onChange={setSortBy}
+            />
+          </View>
+        </View>
+      )}
       <FlatList
         data={filtered}
         keyExtractor={(r) => r.id}
         contentContainerStyle={styles.listContent}
         refreshControl={
           <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={colors.accent} />
-        }
-        ListHeaderComponent={
-          data && data.length > 0 ? (
-            <FilterBar filter={filter} onChange={setFilter} />
-          ) : null
         }
         ListEmptyComponent={
           isLoading ? (
@@ -73,16 +146,14 @@ export default function HomeScreen() {
                 Colle un lien YouTube ou Instagram pour importer ta première recette.
               </Text>
             </View>
-          ) : (
+          ) : noMatch ? (
             <View style={styles.empty}>
-              <Text style={styles.emptyTitle}>Rien dans ce filtre</Text>
+              <Text style={styles.emptyTitle}>Rien ne correspond</Text>
               <Text style={styles.emptyText}>
-                {filter === 'to_test'
-                  ? 'Toutes tes recettes sont marquées comme validées.'
-                  : 'Aucune recette validée pour l’instant.'}
+                Essaie d'élargir tes filtres ou de modifier ta recherche.
               </Text>
             </View>
-          )
+          ) : null
         }
         renderItem={({ item }) => (
           <RecipeCard recipe={item} onPress={() => router.push(`/recipe/${item.id}`)} />
@@ -99,29 +170,67 @@ export default function HomeScreen() {
   );
 }
 
-function FilterBar({ filter, onChange }: { filter: StatusFilter; onChange: (f: StatusFilter) => void }) {
-  const options: { value: StatusFilter; label: string }[] = [
-    { value: 'all', label: 'Toutes' },
-    { value: 'to_test', label: 'À tester' },
-    { value: 'validated', label: 'Validées' },
-  ];
+function Dropdown<T extends string>({
+  title,
+  options,
+  value,
+  onChange,
+}: {
+  title: string;
+  options: { value: T; label: string }[];
+  value: T;
+  onChange: (v: T) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const current = options.find((o) => o.value === value)?.label ?? '';
+
   return (
-    <View style={styles.filterBar}>
-      {options.map((opt) => {
-        const active = filter === opt.value;
-        return (
-          <Pressable
-            key={opt.value}
-            onPress={() => onChange(opt.value)}
-            style={[styles.filterPill, active && styles.filterPillActive]}
-          >
-            <Text style={[styles.filterPillText, active && styles.filterPillTextActive]}>
-              {opt.label}
-            </Text>
+    <>
+      <Pressable
+        onPress={() => setOpen(true)}
+        style={({ pressed }) => [styles.dropdownButton, pressed && styles.dropdownButtonPressed]}
+      >
+        <Text style={styles.dropdownLabel} numberOfLines={1}>
+          {current}
+        </Text>
+        <Text style={styles.dropdownChevron}>▾</Text>
+      </Pressable>
+      <Modal
+        visible={open}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setOpen(false)}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={() => setOpen(false)}>
+          {/* Pressable interne stoppe la propagation du tap pour ne pas fermer la modal en cliquant dans la carte. */}
+          <Pressable style={styles.modalCard} onPress={() => {}}>
+            <Text style={styles.modalTitle}>{title}</Text>
+            {options.map((opt) => {
+              const active = opt.value === value;
+              return (
+                <Pressable
+                  key={opt.value}
+                  onPress={() => {
+                    onChange(opt.value);
+                    setOpen(false);
+                  }}
+                  style={({ pressed }) => [
+                    styles.modalOption,
+                    active && styles.modalOptionActive,
+                    pressed && styles.modalOptionPressed,
+                  ]}
+                >
+                  <Text style={[styles.modalOptionText, active && styles.modalOptionTextActive]}>
+                    {opt.label}
+                  </Text>
+                  {active && <Text style={styles.modalOptionCheck}>✓</Text>}
+                </Pressable>
+              );
+            })}
           </Pressable>
-        );
-      })}
-    </View>
+        </Pressable>
+      </Modal>
+    </>
   );
 }
 
@@ -180,6 +289,109 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.bg,
   },
+  controls: {
+    paddingTop: spacing.md,
+    paddingHorizontal: spacing.lg,
+    gap: spacing.sm,
+    width: '100%',
+    maxWidth: 720,
+    alignSelf: 'center',
+  },
+  search: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    fontSize: 14,
+    color: colors.text,
+  },
+  dropdownRow: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  dropdownButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radii.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: spacing.xs,
+  },
+  dropdownButtonPressed: { opacity: 0.7 },
+  dropdownLabel: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '500',
+    color: colors.text,
+  },
+  dropdownChevron: {
+    fontSize: 12,
+    color: colors.textMuted,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(31, 27, 22, 0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.lg,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 360,
+    backgroundColor: colors.surface,
+    borderRadius: radii.lg,
+    padding: spacing.md,
+    gap: spacing.xs,
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 12,
+  },
+  modalTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    paddingHorizontal: spacing.sm,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.sm,
+  },
+  modalOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    borderRadius: radii.md,
+  },
+  modalOptionActive: {
+    backgroundColor: colors.accentMuted,
+  },
+  modalOptionPressed: {
+    backgroundColor: colors.bg,
+  },
+  modalOptionText: {
+    fontSize: 15,
+    color: colors.text,
+  },
+  modalOptionTextActive: {
+    fontWeight: '600',
+    color: colors.accent,
+  },
+  modalOptionCheck: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.accent,
+  },
   listContent: {
     padding: spacing.lg,
     paddingBottom: 96,
@@ -215,31 +427,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: spacing.sm,
     fontStyle: 'italic',
-  },
-  filterBar: {
-    flexDirection: 'row',
-    gap: spacing.xs,
-    marginBottom: spacing.md,
-  },
-  filterPill: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: 999,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  filterPillActive: {
-    backgroundColor: colors.accent,
-    borderColor: colors.accent,
-  },
-  filterPillText: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: colors.textMuted,
-  },
-  filterPillTextActive: {
-    color: '#FFF',
   },
   card: {
     flexDirection: 'row',
