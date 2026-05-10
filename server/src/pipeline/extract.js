@@ -11,7 +11,11 @@ Règles strictes :
 
 1. **Titre** — Extrais ou déduis un titre clair et appétissant. Si la vidéo a un titre fourni, tu peux t'en inspirer mais nettoie-le (enlève les hashtags, emojis, "TUTO", "RECETTE FACILE", etc.).
 
-2. **Ingrédients** — Liste tous les ingrédients mentionnés avec leur quantité quand elle est précisée. Le champ "quantity" doit être un nombre (3, 1.5, 0.5) ou null si non précisé ("à goût", "selon goût"). Le champ "unit" peut être "g", "kg", "ml", "L", "cl", "cuillère à soupe", "cuillère à café", "pincée", "gousse", "pièce", etc.
+2. **Ingrédients** — Liste tous les ingrédients mentionnés avec leur quantité quand elle est précisée.
+   - "name" : le nom tel qu'il apparaît dans la recette ("courgettes jaunes", "oignon rouge", "huile d'olive extra vierge").
+   - "canonical_name" : le nom générique au singulier, lowercase, sans qualificatif. Cela sert à regrouper les recettes : "courgettes jaunes" et "courgette" doivent toutes deux donner "courgette". "oignon rouge" et "oignon nouveau" → "oignon". "huile d'olive extra vierge" et "huile d'olive" → "huile d'olive" (déjà au bon niveau, on ne sur-simplifie pas en "huile"). Pour les ingrédients composés (sauce soja, pâte de curry, lait de coco), garde le terme courant en cuisine. Pas d'accents typographiques exotiques, pas de majuscule.
+   - "quantity" : un nombre (3, 1.5, 0.5) ou null si non précisé ("à goût", "selon goût").
+   - "unit" : "g", "kg", "ml", "L", "cl", "cuillère à soupe", "cuillère à café", "pincée", "gousse", "pièce", etc.
 
 3. **Étapes** — Une étape par phrase d'instruction, dans l'ordre, à l'impératif ("Préchauffer le four à 200°C.", "Mélanger les œufs et le sucre."). Pas de numérotation dans le texte (l'ordre du tableau suffit). Reformule pour être clair et concis — n'invente PAS d'étapes qui ne sont pas dans la transcription.
 
@@ -50,11 +54,15 @@ const SAVE_RECIPE_TOOL = {
         items: {
           type: 'object',
           properties: {
-            name: { type: 'string', description: "Nom de l'ingrédient" },
+            name: { type: 'string', description: "Nom tel qu'il apparaît dans la recette (ex: 'courgettes jaunes')." },
+            canonical_name: {
+              type: 'string',
+              description: "Nom générique singulier lowercase pour regrouper (ex: 'courgette', 'oignon', 'huile d'olive'). Ne pas sur-simplifier les composés.",
+            },
             quantity: { type: ['number', 'null'], description: 'Quantité numérique, ou null si non précisé' },
             unit: { type: 'string', description: 'Unité (g, ml, cuillère à soupe, etc.)' },
           },
-          required: ['name'],
+          required: ['name', 'canonical_name'],
         },
       },
       steps: {
@@ -77,7 +85,7 @@ const SAVE_RECIPE_TOOL = {
  *   servings?: number,
  *   prep_time_minutes?: number,
  *   cook_time_minutes?: number,
- *   ingredients: Array<{name: string, quantity?: number|null, unit?: string}>,
+ *   ingredients: Array<{name: string, canonical_name: string, quantity?: number|null, unit?: string}>,
  *   steps: string[],
  *   isRecipe: boolean
  * }>}

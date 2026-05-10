@@ -32,9 +32,10 @@ export default function RootLayout() {
           contentStyle: { backgroundColor: colors.bg },
         }}
       >
-        <Stack.Screen name="index" options={{ title: 'Gjizë' }} />
+        <Stack.Screen name="(tabs)" options={{ title: 'Gjizë' }} />
         <Stack.Screen name="import" options={{ title: 'Importer une recette' }} />
         <Stack.Screen name="recipe/[id]" options={{ title: '' }} />
+        <Stack.Screen name="ingredients/[id]" options={{ title: '' }} />
       </Stack>
     </QueryClientProvider>
   );

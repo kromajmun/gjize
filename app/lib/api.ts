@@ -2,8 +2,22 @@ const API_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
 
 export type Ingredient = {
   name: string;
+  canonical_name?: string;
   quantity?: number | null;
   unit?: string;
+};
+
+export type IngredientSummary = {
+  id: string;
+  canonical_name: string;
+  display_name: string;
+  recipe_count: number;
+};
+
+export type IngredientDetail = {
+  id: string;
+  canonical_name: string;
+  display_name: string;
 };
 
 export type MealType = 'plat' | 'dessert' | 'sauce' | 'boisson';
@@ -23,10 +37,23 @@ export type RecipeSummary = {
   created_at: string;
 };
 
+export type RecipeIngredientLink = {
+  id: string;
+  ingredient_id: string;
+  raw_name: string | null;
+  quantity: number | null;
+  unit: string | null;
+  position: number;
+  ingredients: { id: string; canonical_name: string; display_name: string };
+};
+
 export type Recipe = RecipeSummary & {
   ingredients: Ingredient[];
   steps: string[];
   raw_transcript: string | null;
+  // Joint depuis le catalogue normalisé. Vide si la recette n'a pas encore
+  // été migrée — dans ce cas l'UI retombe sur le tableau `ingredients` jsonb.
+  recipe_ingredients?: RecipeIngredientLink[];
 };
 
 export type ImportResponse = {
@@ -83,6 +110,16 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify(patch),
     }).then((r) => r.recipe),
+
+  listIngredients: (query?: string) => {
+    const qs = query && query.trim() ? `?q=${encodeURIComponent(query.trim())}` : '';
+    return request<{ ingredients: IngredientSummary[] }>(`/ingredients${qs}`).then(
+      (r) => r.ingredients,
+    );
+  },
+
+  getIngredient: (id: string) =>
+    request<{ ingredient: IngredientDetail; recipes: RecipeSummary[] }>(`/ingredients/${id}`),
 };
 
 export { ApiError, API_URL };

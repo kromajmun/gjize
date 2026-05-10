@@ -29,8 +29,90 @@ export function getSupabase() {
 }
 
 /**
+ * Normalise un canonical_name : trim, lowercase, espaces multiples → simple.
+ * On garde les accents (différencier "epinard" et "épinard" est trop fragile).
+ */
+function normalizeCanonical(raw) {
+  return String(raw ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+/**
+ * Capitalise la première lettre pour l'affichage UI ("courgette" → "Courgette").
+ */
+function toDisplayName(canonical) {
+  if (!canonical) return '';
+  return canonical.charAt(0).toUpperCase() + canonical.slice(1);
+}
+
+/**
+ * Upsert d'un ingrédient dans le catalogue. Renvoie l'id existant ou nouveau.
+ * Utilise une transaction logique : SELECT puis INSERT si manquant.
+ */
+async function upsertIngredient(supabase, canonicalRaw) {
+  const canonical = normalizeCanonical(canonicalRaw);
+  if (!canonical) return null;
+
+  const { data: existing, error: selErr } = await supabase
+    .from('ingredients')
+    .select('id')
+    .eq('canonical_name', canonical)
+    .maybeSingle();
+
+  if (selErr) throw new Error(`Erreur ingredients select : ${selErr.message}`);
+  if (existing) return existing.id;
+
+  const { data: inserted, error: insErr } = await supabase
+    .from('ingredients')
+    .insert({ canonical_name: canonical, display_name: toDisplayName(canonical) })
+    .select('id')
+    .single();
+
+  // Race condition possible si 2 imports concurrents : on retombe sur SELECT.
+  if (insErr) {
+    if (insErr.code === '23505') {
+      const { data: retry } = await supabase
+        .from('ingredients')
+        .select('id')
+        .eq('canonical_name', canonical)
+        .single();
+      return retry?.id ?? null;
+    }
+    throw new Error(`Erreur ingredients insert : ${insErr.message}`);
+  }
+  return inserted.id;
+}
+
+/**
+ * Lie un tableau d'ingrédients (issu de l'extraction Claude) à une recette.
+ * Pour chaque ingrédient : upsert dans `ingredients` + insert dans `recipe_ingredients`.
+ */
+async function linkRecipeIngredients(supabase, recipeId, ingredients) {
+  const rows = [];
+  for (let i = 0; i < ingredients.length; i++) {
+    const ing = ingredients[i];
+    const ingredientId = await upsertIngredient(supabase, ing.canonical_name ?? ing.name);
+    if (!ingredientId) continue;
+    rows.push({
+      recipe_id: recipeId,
+      ingredient_id: ingredientId,
+      raw_name: ing.name ?? null,
+      quantity: typeof ing.quantity === 'number' ? ing.quantity : null,
+      unit: ing.unit ?? null,
+      position: i,
+    });
+  }
+  if (rows.length === 0) return;
+  const { error } = await supabase.from('recipe_ingredients').insert(rows);
+  if (error) throw new Error(`Erreur recipe_ingredients insert : ${error.message}`);
+}
+
+/**
  * Sauvegarde une recette dans Supabase. No-op si Supabase n'est pas configuré.
  * Renvoie la ligne insérée, ou null si DB désactivée.
+ *
+ * Alimente aussi le catalogue normalisé (ingredients + recipe_ingredients) pour
+ * la recherche par ingrédient. Le jsonb `ingredients` reste source de vérité
+ * pour l'affichage de la fiche.
  */
 export async function saveRecipe({ userId, sourceUrl, sourcePlatform, recipe, transcript }) {
   const supabase = getSupabase();
@@ -57,6 +139,15 @@ export async function saveRecipe({ userId, sourceUrl, sourcePlatform, recipe, tr
     .single();
 
   if (error) throw new Error(`Erreur Supabase : ${error.message}`);
+
+  // Catalogue normalisé : best-effort. En cas d'échec, la recette reste créée
+  // (le jsonb sur `recipes` couvre l'affichage), seule la recherche dégrade.
+  try {
+    await linkRecipeIngredients(supabase, data.id, recipe.ingredients ?? []);
+  } catch (linkErr) {
+    console.warn(`[saveRecipe] catalogue ingrédients : ${linkErr.message}`);
+  }
+
   return data;
 }
 
@@ -78,13 +169,33 @@ export async function listRecipes({ limit = 100 } = {}) {
   return data ?? [];
 }
 
-/** Récupère une recette par ID, avec ingrédients et étapes complets. */
+/**
+ * Récupère une recette par ID, avec ingrédients (jointure recipe_ingredients +
+ * ingredients pour avoir les ingredient_id navigables) et étapes complets.
+ *
+ * Si la recette n'a pas encore été migrée vers le catalogue normalisé, le tableau
+ * recipe_ingredients sera vide et l'app retombera sur le jsonb `ingredients`.
+ */
 export async function getRecipeById(id) {
   const supabase = getSupabase();
   if (!supabase) return null;
 
-  const { data, error } = await supabase.from('recipes').select('*').eq('id', id).maybeSingle();
+  const { data, error } = await supabase
+    .from('recipes')
+    .select(
+      `*,
+       recipe_ingredients (
+         id, ingredient_id, raw_name, quantity, unit, position,
+         ingredients ( id, canonical_name, display_name )
+       )`,
+    )
+    .eq('id', id)
+    .maybeSingle();
+
   if (error) throw new Error(`Erreur Supabase : ${error.message}`);
+  if (data?.recipe_ingredients) {
+    data.recipe_ingredients.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+  }
   return data;
 }
 
@@ -96,6 +207,80 @@ export async function deleteRecipe(id) {
   const { error } = await supabase.from('recipes').delete().eq('id', id);
   if (error) throw new Error(`Erreur Supabase : ${error.message}`);
   return true;
+}
+
+/**
+ * Liste les ingrédients du catalogue avec le nombre de recettes qui les utilisent.
+ * Si `query` est fourni, filtre par sous-chaîne sur canonical_name (ILIKE %q%).
+ */
+export async function listIngredients({ query } = {}) {
+  const supabase = getSupabase();
+  if (!supabase) return [];
+
+  let req = supabase
+    .from('ingredients')
+    .select('id, canonical_name, display_name, recipe_ingredients(recipe_id)')
+    .order('canonical_name', { ascending: true });
+
+  if (query && query.trim()) {
+    const q = query.trim().toLowerCase();
+    req = req.ilike('canonical_name', `%${q}%`);
+  }
+
+  const { data, error } = await req;
+  if (error) throw new Error(`Erreur Supabase : ${error.message}`);
+
+  return (data ?? [])
+    .map((row) => ({
+      id: row.id,
+      canonical_name: row.canonical_name,
+      display_name: row.display_name,
+      recipe_count: Array.isArray(row.recipe_ingredients) ? row.recipe_ingredients.length : 0,
+    }))
+    .filter((row) => row.recipe_count > 0); // on n'expose que ceux liés à au moins 1 recette
+}
+
+/** Détail d'un ingrédient. */
+export async function getIngredientById(id) {
+  const supabase = getSupabase();
+  if (!supabase) return null;
+
+  const { data, error } = await supabase
+    .from('ingredients')
+    .select('id, canonical_name, display_name')
+    .eq('id', id)
+    .maybeSingle();
+
+  if (error) throw new Error(`Erreur Supabase : ${error.message}`);
+  return data;
+}
+
+/** Liste les recettes utilisant un ingrédient donné, mêmes colonnes que listRecipes. */
+export async function listRecipesByIngredient(ingredientId, { limit = 100 } = {}) {
+  const supabase = getSupabase();
+  if (!supabase) return [];
+
+  const { data, error } = await supabase
+    .from('recipe_ingredients')
+    .select(
+      'recipes(id, title, source_url, source_platform, thumbnail_url, prep_time_minutes, cook_time_minutes, servings, meal_type, status, created_at)',
+    )
+    .eq('ingredient_id', ingredientId)
+    .limit(limit);
+
+  if (error) throw new Error(`Erreur Supabase : ${error.message}`);
+
+  // Dédupliquer si une recette utilise plusieurs fois le même ingrédient.
+  const seen = new Set();
+  const out = [];
+  for (const row of data ?? []) {
+    const r = row.recipes;
+    if (!r || seen.has(r.id)) continue;
+    seen.add(r.id);
+    out.push(r);
+  }
+  out.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+  return out;
 }
 
 const ALLOWED_STATUS = new Set(['to_test', 'validated']);

@@ -12,8 +12,8 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { api, MealType, RecipeStatus, RecipeSummary } from '../lib/api';
-import { colors, radii, spacing } from '../lib/theme';
+import { api, MealType, RecipeStatus, RecipeSummary } from '../../lib/api';
+import { colors, radii, spacing } from '../../lib/theme';
 
 type StatusFilter = 'all' | RecipeStatus;
 
@@ -40,7 +40,7 @@ export default function HomeScreen() {
   }, [data, filter]);
 
   return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
+    <SafeAreaView style={styles.container}>
       <FlatList
         data={filtered}
         keyExtractor={(r) => r.id}
@@ -317,7 +317,7 @@ const styles = StyleSheet.create({
   },
   fab: {
     position: 'absolute',
-    bottom: spacing.xxl,
+    bottom: spacing.lg,
     right: spacing.xl,
     flexDirection: 'row',
     alignItems: 'center',

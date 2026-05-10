@@ -51,6 +51,51 @@ alter table recipes alter column status set not null;
 create index if not exists recipes_meal_type_idx on recipes(meal_type);
 create index if not exists recipes_status_idx on recipes(status);
 
+-- ----------------------------------------------------------------------------
+-- V1.2 — Ingrédients normalisés.
+-- "ingredients" = catalogue déduplé (canonical_name unique).
+-- "recipe_ingredients" = relation N-N avec quantité/unité spécifiques à la recette.
+-- Le champ jsonb recipes.ingredients est conservé comme source d'affichage de la
+-- fiche (pas de jointure pour l'écran détail) ; les nouvelles tables servent à
+-- l'agrégation (page liste + recherche par ingrédient).
+-- ----------------------------------------------------------------------------
+
+create table if not exists ingredients (
+  id uuid primary key default gen_random_uuid(),
+  canonical_name text not null unique,
+  display_name text not null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists ingredients_canonical_name_idx on ingredients(canonical_name);
+
+create table if not exists recipe_ingredients (
+  id uuid primary key default gen_random_uuid(),
+  recipe_id uuid not null references recipes(id) on delete cascade,
+  ingredient_id uuid not null references ingredients(id) on delete cascade,
+  raw_name text,
+  quantity numeric,
+  unit text,
+  position integer not null default 0,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists recipe_ingredients_recipe_idx on recipe_ingredients(recipe_id);
+create index if not exists recipe_ingredients_ingredient_idx on recipe_ingredients(ingredient_id);
+
+alter table ingredients enable row level security;
+alter table recipe_ingredients enable row level security;
+
+drop policy if exists "ingredients readable by all" on ingredients;
+create policy "ingredients readable by all" on ingredients
+  for select using (true);
+
+drop policy if exists "users see own recipe_ingredients" on recipe_ingredients;
+create policy "users see own recipe_ingredients" on recipe_ingredients
+  for all using (
+    exists (select 1 from recipes r where r.id = recipe_id and (r.user_id is null or r.user_id = auth.uid()))
+  );
+
 create table if not exists collections (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references auth.users(id) on delete cascade,

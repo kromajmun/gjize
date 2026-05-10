@@ -13,7 +13,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { api, Ingredient, MealType, Recipe, RecipeStatus } from '../../lib/api';
+import { api, Ingredient, MealType, Recipe, RecipeIngredientLink, RecipeStatus } from '../../lib/api';
 import { colors, radii, spacing } from '../../lib/theme';
 
 const MEAL_TYPE_LABEL: Record<MealType, string> = {
@@ -154,9 +154,17 @@ export default function RecipeScreen() {
           )}
 
           <Section title="Ingrédients">
-            {recipe.ingredients.map((ing, i) => (
-              <IngredientRow key={`${ing.name}-${i}`} ingredient={ing} />
-            ))}
+            {recipe.recipe_ingredients && recipe.recipe_ingredients.length > 0
+              ? recipe.recipe_ingredients.map((link) => (
+                  <LinkedIngredientRow
+                    key={link.id}
+                    link={link}
+                    onPress={() => router.push(`/ingredients/${link.ingredient_id}`)}
+                  />
+                ))
+              : recipe.ingredients.map((ing, i) => (
+                  <IngredientRow key={`${ing.name}-${i}`} ingredient={ing} />
+                ))}
           </Section>
 
           <Section title="Étapes">
@@ -201,6 +209,29 @@ function IngredientRow({ ingredient }: { ingredient: Ingredient }) {
       <Text style={styles.ingredientName}>{ingredient.name}</Text>
       {qty ? <Text style={styles.ingredientQty}>{qty}</Text> : null}
     </View>
+  );
+}
+
+function LinkedIngredientRow({
+  link,
+  onPress,
+}: {
+  link: RecipeIngredientLink;
+  onPress: () => void;
+}) {
+  const display = link.raw_name ?? link.ingredients.display_name;
+  const qty =
+    link.quantity != null
+      ? `${link.quantity}${link.unit ? ` ${link.unit}` : ''}`
+      : link.unit ?? '';
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.ingredientRow, pressed && { opacity: 0.6 }]}
+    >
+      <Text style={[styles.ingredientName, styles.ingredientNameLinked]}>{display}</Text>
+      {qty ? <Text style={styles.ingredientQty}>{qty}</Text> : null}
+    </Pressable>
   );
 }
 
@@ -289,6 +320,7 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   ingredientName: { flex: 1, fontSize: 15, color: colors.text },
+  ingredientNameLinked: { color: colors.accent, fontWeight: '500' },
   ingredientQty: { fontSize: 14, color: colors.textMuted, fontWeight: '500' },
   stepRow: {
     flexDirection: 'row',

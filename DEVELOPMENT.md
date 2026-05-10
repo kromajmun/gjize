@@ -19,6 +19,7 @@ Ce fichier documente l'avancement, les décisions techniques et tout ce qui ne s
 | App Android standalone (APK via EAS) | 🔧 En cours — eas.json configuré, build à lancer |
 | App Web responsive (Railway) | ✅ Live, SPA mode |
 | Catégorisation (meal_type auto + status manuel) | ✅ V1.1 |
+| Catalogue ingrédients normalisé (recherche, regroupement) | ✅ V1.2 |
 | Test sur Instagram | ⏳ |
 
 ---
@@ -116,6 +117,14 @@ Toutes les recettes ont `user_id = null`. Quand on ajoutera l'auth (Supabase mag
 - `maxWidth: 720` (640 sur l'import) + `alignSelf: 'center'` sur les conteneurs principaux des 3 écrans.
 - Invisible sur mobile (largeur écran < maxWidth), centre proprement le contenu sur grand écran. Pas de media queries CSS, fait avec les flex props natives de RN — ça marche pareil sur web et natif.
 
+### Catalogue d'ingrédients V1.2 : tables normalisées + recherche
+- **Modèle DB** : `ingredients` (`canonical_name` UNIQUE) + table de jointure `recipe_ingredients` avec `raw_name`/`quantity`/`unit`/`position`. Le jsonb `recipes.ingredients` reste source de vérité pour l'affichage de la fiche (pas de jointure pour rien) ; les tables relationnelles servent à l'agrégation (catalogue + recherche par ingrédient).
+- **Pourquoi `canonical_name`** : "courgettes jaunes", "courgette", "1 grosse courgette" doivent toutes mapper sur la même entité pour permettre `Courgette · 5 recettes`. Claude renvoie ce champ pendant l'extraction au même moment que `name`/`quantity`/`unit`. Règles : singulier, lowercase, on ne sur-simplifie pas les composés ("huile d'olive" reste "huile d'olive", pas "huile").
+- **Recherche** : ILIKE `%q%` sur `canonical_name`. Pas de full-text/trigram pour l'instant — pour ~100 ingrédients la perf est négligeable et la simplicité l'emporte.
+- **Migration des recettes existantes** : `node server/scripts/migrate-ingredients.js`. Stratégie 1-shot : un seul appel Claude avec tous les noms uniques de toutes les recettes pour obtenir un mapping `name → canonical_name` global, puis remplissage des tables. Idempotent (skip les recettes déjà liées).
+- **Lecture côté app** : `getRecipeById` joint `recipe_ingredients` + `ingredients` pour exposer `ingredient_id` à l'UI. Si la jointure est vide (recette pré-migration), l'app retombe sur le jsonb. Les ingrédients tappables (couleur accent) signalent qu'on peut naviguer vers `/ingredients/:id`.
+- **Navigation** : refonte en bottom tabs (`(tabs)/index` + `(tabs)/ingredients`). Le Stack racine garde `import`, `recipe/[id]` et `ingredients/[id]` au-dessus pour les vues détaillées.
+
 ### Catégorisation V1.1 : `meal_type` auto + `status` manuel
 - **`meal_type`** (`plat` | `dessert` | `sauce` | `boisson`) : extrait automatiquement par Claude pendant `extractRecipe`. Enum strict côté tool schema → pas d'incohérences ("italien" / "italienne" / "Italie"). Défaut `plat` si Claude est en panne.
 - **`status`** (`to_test` | `validated`) : entièrement manuel, défaut DB `to_test` à l'import. Toggle d'un tap dans la fiche détaillée.
@@ -153,9 +162,11 @@ Couleurs définies dans `app/lib/theme.ts`. Volontairement pas le défaut "cream
 | `GET` | `/health` | `{ status, model, whisper, supabase_enabled }` |
 | `POST` | `/import-recipe` | `{ recipe, saved_id }` — body `{ url }` |
 | `GET` | `/recipes` | `{ recipes: [...] }` — liste antéchronologique |
-| `GET` | `/recipes/:id` | `{ recipe }` — recette complète + ingredients/steps |
+| `GET` | `/recipes/:id` | `{ recipe }` — recette complète + ingredients/steps + recipe_ingredients (joint) |
 | `PATCH` | `/recipes/:id` | `{ recipe }` — body `{ status?, meal_type? }` (partiel) |
 | `DELETE` | `/recipes/:id` | `{ ok: true }` |
+| `GET` | `/ingredients` | `{ ingredients: [{ id, canonical_name, display_name, recipe_count }] }` — query param optionnel `?q=` pour filtrer (ILIKE) |
+| `GET` | `/ingredients/:id` | `{ ingredient, recipes }` — détail + recettes liées |
 
 ---
 
@@ -190,8 +201,8 @@ Avec 5$ chargés sur chaque API : ~290 imports avant de devoir recharger. À 2 i
 - [x] Déploiement web Railway (2e service depuis app/)
 - [x] Stockage des miniatures dans Supabase Storage (vs CDN direct)
 - [x] Catégorisation V1.1 : `meal_type` auto à l'import + `status` manuel (à tester / validée)
+- [x] Catalogue ingrédients V1.2 : tables normalisées, recherche, page dédiée, ingrédients tappables sur la fiche recette
 - [ ] Tester l'import sur une URL Instagram réelle
-- [ ] (Prochain chantier) Recherche par ingrédient — page liste de tous les ingrédients distincts + filtre par ingrédient ; nécessite normalisation (`canonical_name` extrait par Claude + table jointure).
 - [ ] (Plus tard) Auth Supabase magic link, multi-user
 - [ ] (Plus tard) Collections, partage entre devices
 - [ ] (Plus tard) Custom domain pour l'app web (gjize.app ?)

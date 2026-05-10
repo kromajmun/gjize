@@ -2,6 +2,7 @@ import express from 'express';
 import { config } from './config.js';
 import { importRouter } from './routes/import.js';
 import { recipesRouter } from './routes/recipes.js';
+import { ingredientsRouter } from './routes/ingredients.js';
 
 const app = express();
 
@@ -28,6 +29,7 @@ app.get('/health', (_req, res) => {
 
 app.use(importRouter);
 app.use(recipesRouter);
+app.use(ingredientsRouter);
 
 app.use((err, _req, res, _next) => {
   console.error('[unhandled]', err);
