@@ -79,6 +79,13 @@ export async function downloadAudio(url) {
     noWarnings: true,
     noCheckCertificates: true,
     ...(cookiesPath ? { cookies: cookiesPath } : {}),
+    // YouTube renvoie des listes de formats différentes selon le client
+    // simulé. La majorité des imports étant des Shorts, on commence par
+    // `mweb` (mobile web) qui expose l'audio des Shorts de façon fiable —
+    // `default` et `web_safari` servent de fallback pour les vidéos longues.
+    ...(platform === 'youtube'
+      ? { extractorArgs: 'youtube:player_client=mweb,default,web_safari' }
+      : {}),
   };
 
   let metadata = {};
@@ -86,7 +93,6 @@ export async function downloadAudio(url) {
     const info = await youtubeDlExec(url, {
       ...baseOpts,
       dumpSingleJson: true,
-      preferFreeFormats: true,
     });
     metadata = {
       title: info.title,
@@ -101,6 +107,11 @@ export async function downloadAudio(url) {
       extractAudio: true,
       audioFormat: 'mp3',
       audioQuality: 5, // qualité moyenne, suffisant pour Whisper
+      // Sélecteur explicite avec fallback : `bestaudio*` couvre audio-only
+      // ET muxed-with-audio (utile sur Shorts où l'audio-only pur n'existe
+      // parfois pas). Évite "Requested format is not available" quand le
+      // défaut implicite (`bestaudio/best`) ne matche rien.
+      format: 'bestaudio*/best',
       postprocessorArgs: 'ffmpeg:-ac 1 -ar 16000 -b:a 64k', // mono, 16kHz, 64kbps
     });
   } catch (err) {
