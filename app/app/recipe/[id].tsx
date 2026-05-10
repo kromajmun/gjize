@@ -339,5 +339,5 @@ const styles = StyleSheet.create({
     lineHeight: 28,
   },
   stepText: { flex: 1, fontSize: 15, color: colors.text, lineHeight: 22 },
-  deleteHeader: { color: colors.danger, fontSize: 15, fontWeight: '500' },
+  deleteHeader: { color: colors.danger, fontSize: 15, fontWeight: '500', marginRight: 12 },
 });

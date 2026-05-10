@@ -109,12 +109,12 @@ export default function ImportScreen() {
 
           {mutation.isPending && (
             <View style={styles.progressBox}>
-              {gifUrl && (
-                <Image source={{ uri: gifUrl }} style={styles.progressGif} resizeMode="contain" />
-              )}
               <Text style={styles.progressStep} numberOfLines={1}>
                 {IMPORT_STEPS[stepIndex].label}
               </Text>
+              {gifUrl && (
+                <Image source={{ uri: gifUrl }} style={styles.progressGif} resizeMode="contain" />
+              )}
             </View>
           )}
 
@@ -181,8 +181,8 @@ const styles = StyleSheet.create({
   },
   progressGif: {
     width: '100%',
-    maxWidth: 320,
-    height: 220,
+    maxWidth: 640,
+    height: 440,
   },
   progressStep: {
     fontSize: 14,

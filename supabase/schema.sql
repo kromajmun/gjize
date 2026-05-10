@@ -153,3 +153,22 @@ on conflict (id) do update
 drop policy if exists "public read thumbnails" on storage.objects;
 create policy "public read thumbnails" on storage.objects
   for select using (bucket_id = 'thumbnails');
+
+-- ----------------------------------------------------------------------------
+-- Storage : bucket privé pour les "secrets" applicatifs (cookies yt-dlp etc.).
+-- Accès uniquement via la service_role key (= le serveur Railway).
+-- Aucune policy d'accès public, jamais.
+-- ----------------------------------------------------------------------------
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'secrets',
+  'secrets',
+  false,
+  1048576, -- 1 Mo, largement suffisant pour un cookies.txt
+  array['text/plain']
+)
+on conflict (id) do update
+  set public = excluded.public,
+      file_size_limit = excluded.file_size_limit,
+      allowed_mime_types = excluded.allowed_mime_types;

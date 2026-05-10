@@ -117,6 +117,28 @@ Toutes les recettes ont `user_id = null`. Quand on ajoutera l'auth (Supabase mag
 - `maxWidth: 720` (640 sur l'import) + `alignSelf: 'center'` sur les conteneurs principaux des 3 écrans.
 - Invisible sur mobile (largeur écran < maxWidth), centre proprement le contenu sur grand écran. Pas de media queries CSS, fait avec les flex props natives de RN — ça marche pareil sur web et natif.
 
+### Auth Instagram via cookies (compte dédié)
+- **Pourquoi** : yt-dlp en anonyme se fait jeter par Instagram avec "rate-limit reached or login required". Avec ou sans cette erreur ponctuelle, la tendance long-terme est claire : Instagram exige une session.
+- **Pattern utilisé** : un compte Instagram dédié à Gjize (créé sur un email à part, suit 5-10 comptes cuisine pour rester actif). Ses cookies de session sont uploadés dans Supabase Storage et lus par le serveur. Le compte principal de l'utilisateur n'est jamais exposé.
+- **Stockage** : bucket privé `secrets` (Supabase Storage), fichier `instagram_cookies.txt` au format Netscape. Accessible uniquement via la `service_role` key côté serveur.
+- **Pas d'endpoint admin** : la rotation se fait directement via l'interface web Supabase (Dashboard > Storage > secrets > replace). Pas de UI custom à maintenir.
+- **Cache TTL 1 min** : le serveur retélécharge le fichier au plus toutes les 60s. Une nouvelle version est donc prise en compte rapidement après l'upload.
+- **Détection d'expiration** : si yt-dlp Instagram échoue avec un pattern d'auth, le serveur invalide le cache et renvoie un message actionnable à l'app ("Cookies Instagram expirés, va dans Supabase Dashboard > Storage…").
+- **Espérance de vie** : quelques jours à quelques semaines selon Instagram. Refaire la procédure de rotation quand l'erreur apparaît.
+
+#### Procédure de rotation des cookies (à faire à chaque expiration)
+1. Ouvre Chrome avec le **compte Gjize dédié** (pas le compte principal).
+2. Visite `instagram.com`, vérifie que la session est bien active.
+3. Installe l'extension **"Get cookies.txt LOCALLY"** si pas déjà fait (extension open-source, ne télécharge rien en ligne).
+4. Sur instagram.com, clique sur l'extension > "Export" au format **Netscape** (.txt).
+5. Va dans Supabase Dashboard > **Storage** > bucket **`secrets`**.
+6. Si le fichier `instagram_cookies.txt` existe déjà : clique dessus > **Replace**. Sinon : drag-and-drop le fichier exporté.
+7. C'est tout — le serveur prendra en compte la nouvelle version au prochain import (max 1 min).
+
+#### Pour garder le compte dédié "actif"
+- Logge-toi 30 secondes une fois par mois pour scroller le feed depuis Chrome (juste pour qu'Instagram ne marque pas le compte comme dormant).
+- Suivre quelques comptes cuisine populaires (@inacooksdiary, @inkitchenwithfran, etc.) augmente la vraisemblance du profil.
+
 ### Catalogue d'ingrédients V1.2 : tables normalisées + recherche
 - **Modèle DB** : `ingredients` (`canonical_name` UNIQUE) + table de jointure `recipe_ingredients` avec `raw_name`/`quantity`/`unit`/`position`. Le jsonb `recipes.ingredients` reste source de vérité pour l'affichage de la fiche (pas de jointure pour rien) ; les tables relationnelles servent à l'agrégation (catalogue + recherche par ingrédient).
 - **Pourquoi `canonical_name`** : "courgettes jaunes", "courgette", "1 grosse courgette" doivent toutes mapper sur la même entité pour permettre `Courgette · 5 recettes`. Claude renvoie ce champ pendant l'extraction au même moment que `name`/`quantity`/`unit`. Règles : singulier, lowercase, on ne sur-simplifie pas les composés ("huile d'olive" reste "huile d'olive", pas "huile").
@@ -202,6 +224,7 @@ Avec 5$ chargés sur chaque API : ~290 imports avant de devoir recharger. À 2 i
 - [x] Stockage des miniatures dans Supabase Storage (vs CDN direct)
 - [x] Catégorisation V1.1 : `meal_type` auto à l'import + `status` manuel (à tester / validée)
 - [x] Catalogue ingrédients V1.2 : tables normalisées, recherche, page dédiée, ingrédients tappables sur la fiche recette
+- [x] Auth Instagram via cookies depuis Supabase Storage (compte dédié, rotation manuelle via dashboard)
 - [ ] Tester l'import sur une URL Instagram réelle
 - [ ] (Plus tard) Auth Supabase magic link, multi-user
 - [ ] (Plus tard) Collections, partage entre devices
