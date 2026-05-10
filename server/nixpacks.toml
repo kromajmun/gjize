@@ -1,9 +1,11 @@
 # Configuration Railway / Nixpacks
-# Force l'installation de ffmpeg dans l'image — yt-dlp en a besoin pour
-# extraire l'audio, et le pipeline en a besoin pour le découpage en chunks.
+# - ffmpeg : extraction audio (yt-dlp) + chunking 25 Mo
+# - python3 : youtube-dl-exec exige un binaire python lors de son preinstall,
+#   même quand il finit par utiliser son binaire yt-dlp bundlé. Sans Python,
+#   `npm ci` plante au build avec "youtube-dl-exec needs Python".
 
 [phases.setup]
-nixPkgs = ['nodejs_20', 'ffmpeg']
+nixPkgs = ['nodejs_20', 'ffmpeg', 'python3']
 
 [start]
 cmd = 'npm start'
