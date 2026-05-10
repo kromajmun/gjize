@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "Gjize",
+    "slug": "gjize",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "gjize",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.gjize.app"
+    },
+    "android": {
+      "package": "com.gjize.app"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static"
+    },
+    "plugins": [
+      "expo-router"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

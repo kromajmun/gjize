@@ -1,0 +1,9 @@
+# Configuration Railway / Nixpacks
+# Force l'installation de ffmpeg dans l'image — yt-dlp en a besoin pour
+# extraire l'audio, et le pipeline en a besoin pour le découpage en chunks.
+
+[phases.setup]
+nixPkgs = ['nodejs_20', 'ffmpeg']
+
+[start]
+cmd = 'npm start'
