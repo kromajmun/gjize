@@ -34,9 +34,11 @@ const WHISPER_MAX_BYTES = 24 * 1024 * 1024; // 24 Mo de marge sous la limite 25 
 const SEGMENT_SECONDS = 600; // 10 min par segment si chunking nécessaire
 
 export function detectPlatform(url) {
-  const u = url.toLowerCase();
+  const u = (url ?? '').toLowerCase();
   if (u.includes('youtube.com') || u.includes('youtu.be')) return 'youtube';
   if (u.includes('instagram.com')) return 'instagram';
+  // Tout autre lien http(s) → import "web" (scraping JSON-LD schema.org/Recipe).
+  if (u.startsWith('http://') || u.startsWith('https://')) return 'web';
   return 'unknown';
 }
 

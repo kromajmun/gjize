@@ -30,12 +30,26 @@ const PUSHEEN_GIFS = [
 // Étapes simulées côté client : le serveur ne stream pas son avancement, on
 // affiche les phases dans l'ordre où le pipeline les exécute, avec des durées
 // indicatives. La dernière reste affichée jusqu'à la réponse finale.
-const IMPORT_STEPS = [
+const IMPORT_STEPS_VIDEO = [
   { label: 'Téléchargement de la vidéo…', delayMs: 0 },
   { label: "Transcription de l'audio…", delayMs: 6000 },
   { label: 'Extraction de la recette par Claude…', delayMs: 16000 },
   { label: 'Sauvegarde…', delayMs: 26000 },
 ];
+
+const IMPORT_STEPS_WEB = [
+  { label: 'Récupération de la page…', delayMs: 0 },
+  { label: 'Extraction de la recette par Claude…', delayMs: 2000 },
+  { label: 'Sauvegarde…', delayMs: 8000 },
+];
+
+// Couvre youtu.be, youtube.com, instagram.com (incluant sous-domaines reel/p/etc.).
+const VIDEO_URL_RE = /^https?:\/\/(?:[\w-]+\.)*(?:youtube\.com|youtu\.be|instagram\.com)\//i;
+const ANY_HTTP_URL_RE = /^https?:\/\/[^\s/]+\.[^\s/]+/i;
+
+function isVideoUrl(u: string) {
+  return VIDEO_URL_RE.test(u);
+}
 
 export default function ImportScreen() {
   const [url, setUrl] = useState('');
@@ -56,19 +70,21 @@ export default function ImportScreen() {
     },
   });
 
+  const trimmedUrl = url.trim();
+  const isVideo = isVideoUrl(trimmedUrl);
+  const importSteps = isVideo ? IMPORT_STEPS_VIDEO : IMPORT_STEPS_WEB;
+
   useEffect(() => {
     if (!mutation.isPending) return;
     setStepIndex(0);
     setGifUrl(PUSHEEN_GIFS[Math.floor(Math.random() * PUSHEEN_GIFS.length)]);
-    const timers = IMPORT_STEPS.slice(1).map((step, i) =>
+    const timers = importSteps.slice(1).map((step, i) =>
       setTimeout(() => setStepIndex(i + 1), step.delayMs),
     );
     return () => timers.forEach(clearTimeout);
-  }, [mutation.isPending]);
+  }, [mutation.isPending, importSteps]);
 
-  const isValidUrl = /^https?:\/\/(?:[\w-]+\.)*(?:youtube\.com|youtu\.be|instagram\.com)\//i.test(
-    url.trim(),
-  );
+  const isValidUrl = ANY_HTTP_URL_RE.test(trimmedUrl);
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
@@ -77,7 +93,7 @@ export default function ImportScreen() {
         style={styles.kav}
       >
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <Text style={styles.label}>Lien de la vidéo</Text>
+          <Text style={styles.label}>Lien à importer</Text>
           <TextInput
             value={url}
             onChangeText={setUrl}
@@ -89,10 +105,10 @@ export default function ImportScreen() {
             style={styles.input}
             editable={!mutation.isPending}
           />
-          <Text style={styles.hint}>YouTube ou Instagram.</Text>
+          <Text style={styles.hint}>Vidéo YouTube / Instagram, ou page web (Marmiton, Cuisine AZ, 750g…).</Text>
 
           <Pressable
-            onPress={() => mutation.mutate(url.trim())}
+            onPress={() => mutation.mutate(trimmedUrl)}
             disabled={!isValidUrl || mutation.isPending}
             style={({ pressed }) => [
               styles.button,
@@ -110,7 +126,7 @@ export default function ImportScreen() {
           {mutation.isPending && (
             <View style={styles.progressBox}>
               <Text style={styles.progressStep} numberOfLines={1}>
-                {IMPORT_STEPS[stepIndex].label}
+                {importSteps[stepIndex].label}
               </Text>
               {gifUrl && (
                 <Image source={{ uri: gifUrl }} style={styles.progressGif} resizeMode="contain" />

@@ -7,7 +7,7 @@ create table if not exists recipes (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references auth.users(id) on delete cascade,
   source_url text not null,
-  source_platform text check (source_platform in ('youtube', 'instagram')),
+  source_platform text check (source_platform in ('youtube', 'instagram', 'web')),
   title text not null,
   servings integer,
   prep_time_minutes integer,
@@ -21,6 +21,14 @@ create table if not exists recipes (
 );
 
 create index if not exists recipes_user_idx on recipes(user_id, created_at desc);
+
+-- V1.3 : ajout de 'web' à source_platform (import de pages web via JSON-LD).
+-- ALTER idempotent pour mettre à jour la contrainte sur les bases existantes.
+alter table recipes
+  drop constraint if exists recipes_source_platform_check;
+alter table recipes
+  add constraint recipes_source_platform_check
+  check (source_platform in ('youtube', 'instagram', 'web'));
 
 -- Catégorisation V1.1 : type de plat (auto à l'import) + statut (manuel).
 -- ALTER idempotent pour pouvoir ré-exécuter ce fichier sur une base existante.

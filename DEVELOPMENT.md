@@ -1,6 +1,6 @@
 # Gjize — Journal de développement
 
-> Application d'import et d'organisation de recettes depuis des vidéos YouTube et Instagram.
+> Application d'import et d'organisation de recettes depuis des vidéos YouTube/Instagram et des pages web (JSON-LD schema.org).
 
 Ce fichier documente l'avancement, les décisions techniques et tout ce qui ne se déduit pas de la simple lecture du code.
 
@@ -21,6 +21,7 @@ Ce fichier documente l'avancement, les décisions techniques et tout ce qui ne s
 | Catégorisation (meal_type auto + status manuel) | ✅ V1.1 |
 | Catalogue ingrédients normalisé (recherche, regroupement) | ✅ V1.2 |
 | Filtres + tri + recherche sur la liste de recettes | ✅ V1.3 |
+| Import depuis pages web (JSON-LD schema.org/Recipe) | ✅ V1.4 |
 | Test sur Instagram | ⏳ |
 
 ---
@@ -37,9 +38,10 @@ Gjize/
 │       │   ├── import.js         # POST /import-recipe
 │       │   └── recipes.js        # GET /recipes, GET /recipes/:id, DELETE /recipes/:id
 │       ├── pipeline/
-│       │   ├── download.js       # yt-dlp → audio mp3 (mono 16kHz)
+│       │   ├── download.js       # yt-dlp → audio mp3 (mono 16kHz) + detectPlatform
 │       │   ├── transcribe.js     # Whisper via fetch natif (undici)
-│       │   └── extract.js        # Claude Sonnet 4.6 + tool use
+│       │   ├── scrape.js         # Pages web → JSON-LD schema.org/Recipe (cheerio)
+│       │   └── extract.js        # Claude Sonnet 4.6 + tool use (vidéo OU JSON-LD)
 │       └── db/
 │           └── supabase.js       # Client + saveRecipe / listRecipes / getRecipe / delete
 ├── supabase/
@@ -168,6 +170,18 @@ Toutes les recettes ont `user_id = null`. Quand on ajoutera l'auth (Supabase mag
 - **Schéma DB** : valeurs ASCII (`to_test` / `validated`) pour éviter les pièges encoding/comparaison ; mapping vers labels FR ("À tester" / "Validée") fait dans l'UI uniquement.
 - **Endpoint** : `PATCH /recipes/:id` accepte `{ status, meal_type }` partiel. Toggle status dans la fiche utilise un optimistic update React Query.
 
+### Import web V1.4 : JSON-LD-first, pas de fallback
+
+- **Détection** : `detectPlatform(url)` renvoie maintenant `'web'` pour toute URL http(s) qui n'est ni YouTube ni Instagram. Plus de white-list de domaines — le pipeline tente le scraping et remonte une erreur claire si ça ne passe pas.
+- **Stratégie** : aller chercher la balise `<script type="application/ld+json">` qui contient un noeud `@type: "Recipe"` (schema.org). 90%+ des gros sites de recettes français l'exposent (Marmiton, Cuisine AZ, 750g, Cuisine Actuelle, etc.). Mapping direct des champs : `name`, `recipeIngredient`, `recipeInstructions` (avec `HowToStep` / `HowToSection`), `prepTime` / `cookTime` (ISO 8601), `recipeYield`, `image`.
+- **Pourquoi pas de fallback HTML/LLM** : décision V1 pour rester simple — si pas de JSON-LD, on remonte une erreur explicite à l'utilisateur ("aucune donnée structurée trouvée"). On verra plus tard si le besoin de fallback se confirme.
+- **Pourquoi quand même Claude** : `recipeIngredient` schema.org est une liste de strings brutes ("200 g de farine", "Pour la pâte", "2 œufs"). Sans LLM, on n'a ni `canonical_name` (le catalogue normalisé V1.2 ne marche plus) ni détection des titres de section, ni `meal_type`. Un appel Claude court avec un system prompt dédié (`extractRecipeFromJsonLd`) gère la normalisation. Le titre, les étapes et les durées sont passés tels quels — Claude est instruit de les recopier sans inventer.
+- **Coût** : ordre de grandeur identique à un import vidéo (~$0.002 par recette web pour Sonnet 4.6), donc 0 transcription Whisper → moins cher qu'un import vidéo.
+- **`raw_transcript`** : la colonne sert maintenant aussi à stocker le JSON-LD source sérialisé pour les imports web (utile si on améliore le prompt Claude plus tard). À ne pas renommer pour ne pas casser les requêtes — sémantiquement c'est devenu `raw_content`.
+- **User-Agent** : envoi d'un UA Chrome desktop pour ne pas se faire jeter en 403 par certains sites.
+- **Thumbnail** : extraite depuis `image` du JSON-LD (string, array, ou `ImageObject`) puis fallback `<meta property="og:image">`. Upload Supabase Storage identique au pipeline vidéo (`uploadThumbnailFromUrl`).
+- **Schema DB** : `source_platform` accepte maintenant `'web'` en plus de `'youtube'` / `'instagram'`. ALTER idempotent dans `schema.sql` à ré-exécuter.
+
 ### Thème : ivoire chaud + accent rouille
 Couleurs définies dans `app/lib/theme.ts`. Volontairement pas le défaut "cream + serif italics" qui sort de tous les modèles génératifs — palette de cuisine méditerranéenne, sobre et lisible.
 
@@ -241,6 +255,7 @@ Avec 5$ chargés sur chaque API : ~290 imports avant de devoir recharger. À 2 i
 - [x] Auth Instagram via cookies depuis Supabase Storage (compte dédié, rotation manuelle via dashboard)
 - [x] Auth YouTube via cookies (optionnel) — même mécanisme, contourne le bot check sur IP Railway
 - [x] Filtres / tri / recherche sur la liste de recettes (V1.3)
+- [x] Import depuis pages web via JSON-LD schema.org/Recipe (V1.4)
 - [ ] Tester l'import sur une URL Instagram réelle
 - [ ] (Plus tard) Auth Supabase magic link, multi-user
 - [ ] (Plus tard) Collections, partage entre devices

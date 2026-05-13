@@ -27,7 +27,7 @@ export type RecipeSummary = {
   id: string;
   title: string;
   source_url: string;
-  source_platform: 'youtube' | 'instagram';
+  source_platform: 'youtube' | 'instagram' | 'web';
   thumbnail_url: string | null;
   prep_time_minutes: number | null;
   cook_time_minutes: number | null;
