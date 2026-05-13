@@ -116,7 +116,7 @@ export default function RecipeScreen() {
 
           <View style={styles.metaRow}>
             <Pressable onPress={() => Linking.openURL(recipe.source_url)}>
-              <Text style={styles.sourceLink}>Voir la vidéo source ↗</Text>
+              <Text style={styles.sourceLink}>Voir la source ↗</Text>
             </Pressable>
           </View>
 
