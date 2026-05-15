@@ -103,6 +103,13 @@ export default function ImportScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.kav}
       >
+        {mutation.isError && (
+          <View style={[styles.statusBox, styles.statusError]}>
+            <Text style={styles.statusTitle}>Échec de l'import</Text>
+            <Text style={styles.statusText}>{(mutation.error as Error).message}</Text>
+          </View>
+        )}
+
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <Text style={styles.label}>Lien à importer</Text>
           <TextInput
@@ -118,23 +125,27 @@ export default function ImportScreen() {
           />
           <Text style={styles.hint}>Vidéo YouTube / Instagram, ou page web (Marmiton, Cuisine AZ, 750g…).</Text>
 
-          <Text style={styles.label}>Notes (optionnel)</Text>
-          <TextInput
-            value={notes}
-            onChangeText={setNotes}
-            placeholder={
-              'Ce que tu écris ici prime sur la vidéo / la page. Exemples :\n\n' +
-              '• Recette en commentaire : recopie les ingrédients et les étapes\n' +
-              '• Adapter : « remplace le beurre par 100 g d\'huile d\'olive »\n' +
-              '• Exclure : « ignore le glaçage », « sans oignons »\n' +
-              '• Préciser : « pour 4 personnes », « prep 15 min »\n\n' +
-              'Si tu ajoutes un ingrédient, donne la quantité — Claude ne la devinera pas.'
-            }
-            placeholderTextColor={colors.textMuted}
-            multiline
-            style={[styles.input, styles.notesInput]}
-            editable={!mutation.isPending}
-          />
+          {!mutation.isPending && (
+            <>
+              <Text style={styles.label}>Notes (optionnel)</Text>
+              <TextInput
+                value={notes}
+                onChangeText={setNotes}
+                placeholder="Recette en commentaire, adaptation, exclusion, précision…"
+                placeholderTextColor={colors.textMuted}
+                multiline
+                style={[styles.input, styles.notesInput]}
+              />
+              <Text style={styles.notesHelp}>
+                Ce que tu écris ici prime sur la vidéo / la page.{'\n\n'}
+                • Recette en commentaire : recopie ingrédients + étapes{'\n'}
+                • Adapter : « remplace le beurre par 100 g d'huile d'olive »{'\n'}
+                • Exclure : « ignore le glaçage », « sans oignons »{'\n'}
+                • Préciser : « pour 4 personnes », « prep 15 min »{'\n\n'}
+                Si tu ajoutes un ingrédient, donne la quantité — Claude ne la devinera pas.
+              </Text>
+            </>
+          )}
 
           <Pressable
             onPress={() => mutation.mutate({ url: trimmedUrl, notes: trimmedNotes || undefined })}
@@ -160,13 +171,6 @@ export default function ImportScreen() {
               {gifUrl && (
                 <Image source={{ uri: gifUrl }} style={styles.progressGif} resizeMode="contain" />
               )}
-            </View>
-          )}
-
-          {mutation.isError && (
-            <View style={[styles.statusBox, styles.statusError]}>
-              <Text style={styles.statusTitle}>Échec de l'import</Text>
-              <Text style={styles.statusText}>{(mutation.error as Error).message}</Text>
             </View>
           )}
         </ScrollView>
@@ -198,10 +202,15 @@ const styles = StyleSheet.create({
   },
   hint: { fontSize: 12, color: colors.textMuted },
   notesInput: {
-    minHeight: 223,
+    minHeight: 96,
     paddingTop: spacing.md,
     textAlignVertical: 'top',
     lineHeight: 20,
+  },
+  notesHelp: {
+    fontSize: 12,
+    color: colors.textMuted,
+    lineHeight: 17,
   },
   button: {
     backgroundColor: colors.accent,
