@@ -22,6 +22,7 @@ Ce fichier documente l'avancement, les décisions techniques et tout ce qui ne s
 | Catalogue ingrédients normalisé (recherche, regroupement) | ✅ V1.2 |
 | Filtres + tri + recherche sur la liste de recettes | ✅ V1.3 |
 | Import depuis pages web (JSON-LD schema.org/Recipe) | ✅ V1.4 |
+| Notes utilisateur à l'import (commentaires, adaptations, exclusions) | ✅ V1.5 |
 | Test sur Instagram | ⏳ |
 
 ---
@@ -182,6 +183,14 @@ Toutes les recettes ont `user_id = null`. Quand on ajoutera l'auth (Supabase mag
 - **Thumbnail** : extraite depuis `image` du JSON-LD (string, array, ou `ImageObject`) puis fallback `<meta property="og:image">`. Upload Supabase Storage identique au pipeline vidéo (`uploadThumbnailFromUrl`).
 - **Schema DB** : `source_platform` accepte maintenant `'web'` en plus de `'youtube'` / `'instagram'`. ALTER idempotent dans `schema.sql` à ré-exécuter.
 
+### Notes utilisateur à l'import V1.5
+
+- **Quoi** : un champ texte libre optionnel à côté de l'URL dans l'écran d'import. S'il est rempli, il est transmis à Claude (vidéo OU JSON-LD) sous la forme d'un bloc "Notes utilisateur (à appliquer en priorité)" en fin de message.
+- **Pourquoi un seul champ** : couvre 4 cas en un seul mécanisme — (1) recette dans un commentaire épinglé que Whisper ne récupère pas, (2) adaptations diététiques ("version vegan", "sans gluten"), (3) exclusions ("ignore le glaçage", "sans oignons"), (4) précisions ("4 personnes", "prep 15 min"). Plus simple que de scraper les commentaires côté serveur, plus général aussi.
+- **Garde-fou prompt** : règle ajoutée aux deux system prompts — "applique fidèlement les notes mais N'INVENTE PAS de quantité ou d'étape qui n'est ni dans la source ni dans les notes". Le tool schema `save_recipe` reste inchangé.
+- **Capé à 2000 caractères côté serveur** (`routes/import.js`) pour limiter le bruit dans le prompt. Si vide / absent, aucun bloc n'est ajouté au message — le cache prompt système reste hit.
+- **Body de `/import-recipe`** : `{ url, notes? }`. L'app envoie `notes` uniquement quand l'utilisateur a rempli le champ (`undefined` sinon).
+
 ### Thème : ivoire chaud + accent rouille
 Couleurs définies dans `app/lib/theme.ts`. Volontairement pas le défaut "cream + serif italics" qui sort de tous les modèles génératifs — palette de cuisine méditerranéenne, sobre et lisible.
 
@@ -210,7 +219,7 @@ Couleurs définies dans `app/lib/theme.ts`. Volontairement pas le défaut "cream
 | Méthode | Route | Réponse |
 |---------|-------|---------|
 | `GET` | `/health` | `{ status, model, whisper, supabase_enabled }` |
-| `POST` | `/import-recipe` | `{ recipe, saved_id }` — body `{ url }` |
+| `POST` | `/import-recipe` | `{ recipe, saved_id }` — body `{ url, notes? }` |
 | `GET` | `/recipes` | `{ recipes: [...] }` — liste antéchronologique |
 | `GET` | `/recipes/:id` | `{ recipe }` — recette complète + ingredients/steps + recipe_ingredients (joint) |
 | `PATCH` | `/recipes/:id` | `{ recipe }` — body `{ status?, meal_type? }` (partiel) |
@@ -256,6 +265,7 @@ Avec 5$ chargés sur chaque API : ~290 imports avant de devoir recharger. À 2 i
 - [x] Auth YouTube via cookies (optionnel) — même mécanisme, contourne le bot check sur IP Railway
 - [x] Filtres / tri / recherche sur la liste de recettes (V1.3)
 - [x] Import depuis pages web via JSON-LD schema.org/Recipe (V1.4)
+- [x] Notes utilisateur à l'import : champ texte libre transmis à Claude (V1.5)
 - [ ] Tester l'import sur une URL Instagram réelle
 - [ ] (Plus tard) Auth Supabase magic link, multi-user
 - [ ] (Plus tard) Collections, partage entre devices

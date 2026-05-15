@@ -32,6 +32,13 @@ Règles strictes :
    - "boisson" : cocktail, smoothie, boisson chaude, jus, infusion
    En cas d'ambiguïté, choisis "plat" par défaut.
 
+8. **Notes utilisateur** — Si un bloc "Notes utilisateur" est fourni en bas du message, il a priorité sur la transcription/description. Cas d'usage typiques :
+   - **Recette dans un commentaire** : la vidéo ne parle pas de la recette mais l'utilisateur la recopie dans les notes → utilise les notes comme source principale.
+   - **Adaptation** : "remplace le beurre par de l'huile", "version sans gluten" → applique le remplacement dans les ingrédients et les étapes.
+   - **Exclusion** : "ignore l'étape de glaçage", "sans oignons" → omets l'ingrédient/étape.
+   - **Précision** : "4 personnes", "prep 15 min" → utilise ces valeurs.
+   Règle d'or : applique fidèlement les notes, mais N'INVENTE PAS de quantité ou d'étape qui n'est ni dans la vidéo ni dans les notes.
+
 Appelle TOUJOURS le tool "save_recipe" avec ta réponse — ne réponds jamais en texte libre.`;
 
 const SAVE_RECIPE_TOOL = {
@@ -90,7 +97,7 @@ const SAVE_RECIPE_TOOL = {
  *   isRecipe: boolean
  * }>}
  */
-export async function extractRecipe(transcript, metadata = {}) {
+export async function extractRecipe(transcript, metadata = {}, notes = null) {
   if (!transcript || transcript.trim().length < 20) {
     throw new Error('Transcription trop courte ou vide pour extraire une recette.');
   }
@@ -102,6 +109,9 @@ export async function extractRecipe(transcript, metadata = {}) {
     userParts.push(`Description : ${truncated}`);
   }
   userParts.push(`Transcription parlée :\n${transcript}`);
+  if (notes) {
+    userParts.push(`Notes utilisateur (à appliquer en priorité sur la transcription) :\n${notes}`);
+  }
 
   const response = await client.messages.create({
     model: config.anthropicModel,
@@ -160,6 +170,12 @@ Règles strictes :
    - "boisson" : cocktail, smoothie, boisson chaude, jus, infusion
    En cas d'ambiguïté, "plat" par défaut.
 
+6. **Notes utilisateur** — Si un bloc "Notes utilisateur" est fourni en bas du message, il a priorité sur la source JSON-LD. Cas typiques :
+   - **Adaptation** : "remplace le beurre par de l'huile", "version vegan" → applique le remplacement.
+   - **Exclusion** : "ignore l'étape de glaçage", "sans oignons" → omets l'ingrédient/étape.
+   - **Précision** : "6 personnes" → utilise la valeur fournie.
+   Règle d'or : applique fidèlement les notes, mais N'INVENTE PAS de détails (quantité, étape) qui ne sont ni dans la source ni dans les notes.
+
 Appelle TOUJOURS le tool "save_recipe".`;
 
 /**
@@ -172,7 +188,7 @@ Appelle TOUJOURS le tool "save_recipe".`;
  * @param {object} [metadata]
  * @returns Même structure que extractRecipe()
  */
-export async function extractRecipeFromJsonLd(scrapedRecipe, metadata = {}) {
+export async function extractRecipeFromJsonLd(scrapedRecipe, metadata = {}, notes = null) {
   if (!scrapedRecipe || !Array.isArray(scrapedRecipe.ingredients) || scrapedRecipe.ingredients.length === 0) {
     throw new Error('JSON-LD vide ou invalide.');
   }
@@ -194,6 +210,9 @@ export async function extractRecipeFromJsonLd(scrapedRecipe, metadata = {}) {
   parts.push(
     `Étapes (à recopier dans l'ordre) :\n${scrapedRecipe.steps.map((s, i) => `${i + 1}. ${s}`).join('\n')}`,
   );
+  if (notes) {
+    parts.push(`Notes utilisateur (à appliquer en priorité sur le JSON-LD) :\n${notes}`);
+  }
 
   const response = await client.messages.create({
     model: config.anthropicModel,

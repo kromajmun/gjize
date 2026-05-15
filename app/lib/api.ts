@@ -96,10 +96,10 @@ export const api = {
   getRecipe: (id: string) =>
     request<{ recipe: Recipe }>(`/recipes/${id}`).then((r) => r.recipe),
 
-  importRecipe: (url: string) =>
+  importRecipe: (params: { url: string; notes?: string }) =>
     request<ImportResponse>('/import-recipe', {
       method: 'POST',
-      body: JSON.stringify({ url }),
+      body: JSON.stringify(params),
     }),
 
   deleteRecipe: (id: string) =>

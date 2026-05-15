@@ -53,6 +53,7 @@ function isVideoUrl(u: string) {
 
 export default function ImportScreen() {
   const [url, setUrl] = useState('');
+  const [notes, setNotes] = useState('');
   const [stepIndex, setStepIndex] = useState(0);
   const [gifUrl, setGifUrl] = useState<string | null>(null);
   const router = useRouter();
@@ -71,6 +72,7 @@ export default function ImportScreen() {
   });
 
   const trimmedUrl = url.trim();
+  const trimmedNotes = notes.trim();
   const isVideo = isVideoUrl(trimmedUrl);
   const importSteps = isVideo ? IMPORT_STEPS_VIDEO : IMPORT_STEPS_WEB;
 
@@ -107,8 +109,26 @@ export default function ImportScreen() {
           />
           <Text style={styles.hint}>Vidéo YouTube / Instagram, ou page web (Marmiton, Cuisine AZ, 750g…).</Text>
 
+          <Text style={styles.label}>Notes (optionnel)</Text>
+          <TextInput
+            value={notes}
+            onChangeText={setNotes}
+            placeholder={
+              'Ce que tu écris ici prime sur la vidéo / la page. Exemples :\n\n' +
+              '• Recette en commentaire : recopie les ingrédients et les étapes\n' +
+              '• Adapter : « remplace le beurre par 100 g d\'huile d\'olive »\n' +
+              '• Exclure : « ignore le glaçage », « sans oignons »\n' +
+              '• Préciser : « pour 4 personnes », « prep 15 min »\n\n' +
+              'Si tu ajoutes un ingrédient, donne la quantité — Claude ne la devinera pas.'
+            }
+            placeholderTextColor={colors.textMuted}
+            multiline
+            style={[styles.input, styles.notesInput]}
+            editable={!mutation.isPending}
+          />
+
           <Pressable
-            onPress={() => mutation.mutate(trimmedUrl)}
+            onPress={() => mutation.mutate({ url: trimmedUrl, notes: trimmedNotes || undefined })}
             disabled={!isValidUrl || mutation.isPending}
             style={({ pressed }) => [
               styles.button,
@@ -168,6 +188,12 @@ const styles = StyleSheet.create({
     color: colors.text,
   },
   hint: { fontSize: 12, color: colors.textMuted },
+  notesInput: {
+    minHeight: 200,
+    paddingTop: spacing.md,
+    textAlignVertical: 'top',
+    lineHeight: 20,
+  },
   button: {
     backgroundColor: colors.accent,
     paddingVertical: spacing.md,

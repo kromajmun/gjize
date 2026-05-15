@@ -8,7 +8,7 @@ import { saveRecipe, uploadThumbnailFromUrl } from '../db/supabase.js';
 export const importRouter = Router();
 
 importRouter.post('/import-recipe', async (req, res) => {
-  const { url, userId } = req.body ?? {};
+  const { url, userId, notes } = req.body ?? {};
 
   if (!url || typeof url !== 'string') {
     return res.status(400).json({ error: 'Le champ "url" est requis (string).' });
@@ -18,6 +18,12 @@ importRouter.post('/import-recipe', async (req, res) => {
   if (platform === 'unknown') {
     return res.status(400).json({ error: 'URL invalide (http/https attendu).' });
   }
+
+  // Notes libres optionnelles, capées à 2000 caractères pour limiter le bruit
+  // dans le prompt Claude. null si vide → la fonction extract n'ajoute alors
+  // aucun bloc "Notes utilisateur" et le cache prompt reste hit.
+  const trimmedNotes = typeof notes === 'string' ? notes.trim().slice(0, 2000) : '';
+  const notesArg = trimmedNotes || null;
 
   let cleanup = null;
   try {
@@ -33,7 +39,7 @@ importRouter.post('/import-recipe', async (req, res) => {
         `[import] JSON-LD : "${scraped.recipe.title}" (${scraped.recipe.ingredients.length} ingrédients bruts, ${scraped.recipe.steps.length} étapes)`,
       );
       console.log('[import] normalisation Claude…');
-      recipe = await extractRecipeFromJsonLd(scraped.recipe, metadata);
+      recipe = await extractRecipeFromJsonLd(scraped.recipe, metadata, notesArg);
     } else {
       console.log(`[import] ${platform} — téléchargement audio…`);
       const downloadResult = await downloadAudio(url);
@@ -47,7 +53,7 @@ importRouter.post('/import-recipe', async (req, res) => {
       console.log(`[import] transcrit (${transcript.length} caractères)`);
 
       console.log('[import] extraction Claude…');
-      recipe = await extractRecipe(transcript, metadata);
+      recipe = await extractRecipe(transcript, metadata, notesArg);
     }
 
     console.log(
