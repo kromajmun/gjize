@@ -39,6 +39,11 @@ Règles strictes :
    - **Précision** : "4 personnes", "prep 15 min" → utilise ces valeurs.
    Règle d'or : applique fidèlement les notes, mais N'INVENTE PAS de quantité ou d'étape qui n'est ni dans la vidéo ni dans les notes.
 
+9. **Auto-évaluation de fidélité** — Remplis OBLIGATOIREMENT "fidelity" et "fidelity_comment" :
+   - "fidelity" = "high" si tu as recopié sans rien inférer ; "medium" si tu as complété/reformulé quelques détails (quantités floues, étapes implicites) ; "low" si tu as dû combler beaucoup de trous ou que la source était lacunaire.
+   - "fidelity_comment" = 1-2 phrases honnêtes qui décrivent ce que tu as inféré ("la vidéo ne donnait pas la quantité de sucre, je l'ai laissée vide", "j'ai déduit le meal_type du contexte"). Si tout vient de la source, écris-le franchement ("Tout extrait directement de la transcription, sans inférence.").
+   Un commentaire utile vaut mieux qu'un score flatteur — sois lucide, c'est cet avis qui sera affiché à l'utilisateur.
+
 Appelle TOUJOURS le tool "save_recipe" avec ta réponse — ne réponds jamais en texte libre.`;
 
 const SAVE_RECIPE_TOOL = {
@@ -76,8 +81,19 @@ const SAVE_RECIPE_TOOL = {
         type: 'array',
         items: { type: 'string', description: "Une étape, à l'impératif" },
       },
+      fidelity: {
+        type: 'string',
+        enum: ['high', 'medium', 'low'],
+        description:
+          "Auto-évaluation de la fidélité de l'extraction par rapport à la source. high = tout vient de la source, medium = quelques détails inférés/reformulés, low = beaucoup d'inférences faute de source claire.",
+      },
+      fidelity_comment: {
+        type: 'string',
+        description:
+          "1 à 2 phrases en français qui listent honnêtement ce qui a été inféré, complété ou reformulé (quantités manquantes, étapes déduites, meal_type devine, etc.). Si tout vient de la source, dis-le clairement.",
+      },
     },
-    required: ['title', 'meal_type', 'ingredients', 'steps'],
+    required: ['title', 'meal_type', 'ingredients', 'steps', 'fidelity', 'fidelity_comment'],
   },
 };
 
@@ -175,6 +191,11 @@ Règles strictes :
    - **Exclusion** : "ignore l'étape de glaçage", "sans oignons" → omets l'ingrédient/étape.
    - **Précision** : "6 personnes" → utilise la valeur fournie.
    Règle d'or : applique fidèlement les notes, mais N'INVENTE PAS de détails (quantité, étape) qui ne sont ni dans la source ni dans les notes.
+
+7. **Auto-évaluation de fidélité** — Remplis OBLIGATOIREMENT "fidelity" et "fidelity_comment" :
+   - "fidelity" = "high" si tu as recopié le JSON-LD sans inférence ; "medium" si tu as normalisé/reformulé quelques détails (canonical_name, sections filtrées) ; "low" si le JSON-LD était lacunaire et tu as dû compléter beaucoup.
+   - "fidelity_comment" = 1-2 phrases honnêtes qui listent ce que tu as inféré ("j'ai filtré 2 lignes de titre de section", "j'ai déduit meal_type=dessert"). Si tout vient du JSON-LD, écris-le franchement.
+   Un commentaire utile vaut mieux qu'un score flatteur — c'est cet avis qui sera affiché à l'utilisateur.
 
 Appelle TOUJOURS le tool "save_recipe".`;
 

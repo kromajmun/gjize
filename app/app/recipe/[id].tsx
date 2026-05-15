@@ -1,5 +1,6 @@
 import { useLocalSearchParams, Stack, useRouter } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -24,9 +25,19 @@ const MEAL_TYPE_LABEL: Record<MealType, string> = {
 };
 
 export default function RecipeScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const params = useLocalSearchParams<{
+    id: string;
+    fidelity?: 'high' | 'medium' | 'low';
+    fidelity_comment?: string;
+  }>();
+  const { id } = params;
   const router = useRouter();
   const queryClient = useQueryClient();
+  // Bandeau de fidélité affiché uniquement quand on arrive depuis l'import
+  // (les params ne sont jamais récupérés depuis la liste). Dismissable.
+  const [showFidelity, setShowFidelity] = useState(
+    Boolean(params.fidelity && params.fidelity_comment),
+  );
 
   const { data: recipe, isLoading, error } = useQuery({
     queryKey: ['recipe', id],
@@ -111,6 +122,13 @@ export default function RecipeScreen() {
         )}
 
         <View style={styles.body}>
+          {showFidelity && params.fidelity && params.fidelity_comment && (
+            <FidelityBanner
+              level={params.fidelity}
+              comment={params.fidelity_comment}
+              onDismiss={() => setShowFidelity(false)}
+            />
+          )}
           <Text style={styles.eyebrow}>{MEAL_TYPE_LABEL[recipe.meal_type]}</Text>
           <Text style={styles.title}>{recipe.title}</Text>
 
@@ -235,6 +253,38 @@ function LinkedIngredientRow({
   );
 }
 
+const FIDELITY_CONFIG: Record<
+  'high' | 'medium' | 'low',
+  { label: string; color: string; bg: string }
+> = {
+  high: { label: '✓ Extraction fidèle', color: colors.success, bg: '#EAF0E2' },
+  medium: { label: '◐ Extraction partielle', color: colors.accent, bg: colors.accentMuted },
+  low: { label: '! Extraction incertaine', color: colors.danger, bg: '#F4DEDE' },
+};
+
+function FidelityBanner({
+  level,
+  comment,
+  onDismiss,
+}: {
+  level: 'high' | 'medium' | 'low';
+  comment: string;
+  onDismiss: () => void;
+}) {
+  const cfg = FIDELITY_CONFIG[level];
+  return (
+    <View style={[styles.fidelity, { borderLeftColor: cfg.color, backgroundColor: cfg.bg }]}>
+      <View style={styles.fidelityHeader}>
+        <Text style={[styles.fidelityLabel, { color: cfg.color }]}>{cfg.label}</Text>
+        <Pressable onPress={onDismiss} hitSlop={12}>
+          <Text style={styles.fidelityClose}>✕</Text>
+        </Pressable>
+      </View>
+      <Text style={styles.fidelityComment}>{comment}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   center: {
@@ -340,4 +390,32 @@ const styles = StyleSheet.create({
   },
   stepText: { flex: 1, fontSize: 15, color: colors.text, lineHeight: 22 },
   deleteHeader: { color: colors.danger, fontSize: 15, fontWeight: '500', marginRight: 12 },
+  fidelity: {
+    borderLeftWidth: 4,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radii.sm,
+    gap: spacing.xs,
+  },
+  fidelityHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  fidelityLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  fidelityClose: {
+    fontSize: 16,
+    color: colors.textMuted,
+    paddingHorizontal: spacing.xs,
+  },
+  fidelityComment: {
+    fontSize: 13,
+    color: colors.text,
+    lineHeight: 18,
+  },
 });

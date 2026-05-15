@@ -25,7 +25,7 @@ export default function IngredientsScreen() {
   });
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['bottom']}>
       <View style={styles.header}>
         <TextInput
           value={query}
@@ -99,7 +99,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   header: {
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
+    paddingTop: spacing.xl,
     paddingBottom: spacing.sm,
     width: '100%',
     maxWidth: 720,
@@ -112,7 +112,7 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
-    fontSize: 15,
+    fontSize: 16,
     color: colors.text,
   },
   listContent: {

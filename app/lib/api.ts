@@ -54,6 +54,10 @@ export type Recipe = RecipeSummary & {
   // Joint depuis le catalogue normalisé. Vide si la recette n'a pas encore
   // été migrée — dans ce cas l'UI retombe sur le tableau `ingredients` jsonb.
   recipe_ingredients?: RecipeIngredientLink[];
+  // Auto-évaluation Claude renvoyée à l'import uniquement (non persistée DB).
+  // Toujours absent sur GET /recipes/:id.
+  fidelity?: 'high' | 'medium' | 'low';
+  fidelity_comment?: string;
 };
 
 export type ImportResponse = {

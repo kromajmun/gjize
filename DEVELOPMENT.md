@@ -191,6 +191,14 @@ Toutes les recettes ont `user_id = null`. Quand on ajoutera l'auth (Supabase mag
 - **Capé à 2000 caractères côté serveur** (`routes/import.js`) pour limiter le bruit dans le prompt. Si vide / absent, aucun bloc n'est ajouté au message — le cache prompt système reste hit.
 - **Body de `/import-recipe`** : `{ url, notes? }`. L'app envoie `notes` uniquement quand l'utilisateur a rempli le champ (`undefined` sinon).
 
+### Auto-évaluation de fidélité à l'import V1.5
+
+- **Quoi** : Claude renvoie à chaque import `fidelity` (`high` | `medium` | `low`) + `fidelity_comment` (1-2 phrases en français) qui décrit ce qu'il a inféré ou complété.
+- **Pourquoi catégoriel et pas /10** : les LLMs s'auto-notent toujours 8-9/10 et le score n'est pas calibré entre runs. 3 niveaux discrets + un commentaire texte sont plus actionnables (le commentaire est l'info qui compte vraiment).
+- **Pas persisté en DB** : volontairement éphémère. Renvoyé dans `ImportResponse.recipe`, passé via query params à `/recipe/[id]`, affiché en bandeau dismissable en haut de la fiche. Disparaît au prochain refresh ou si on arrive depuis la liste — pas de bruit visuel à long terme.
+- **Garde-fou prompt** : "un commentaire utile vaut mieux qu'un score flatteur, c'est cet avis qui sera affiché à l'utilisateur". Les deux champs sont `required` dans le tool schema pour forcer Claude à les remplir.
+- **UI** : 3 styles (vert = `high`, rouille = `medium`, rouge = `low`), border-left + fond teinté, ✕ pour fermer.
+
 ### Thème : ivoire chaud + accent rouille
 Couleurs définies dans `app/lib/theme.ts`. Volontairement pas le défaut "cream + serif italics" qui sort de tous les modèles génératifs — palette de cuisine méditerranéenne, sobre et lisible.
 

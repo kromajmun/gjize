@@ -84,7 +84,7 @@ export default function HomeScreen() {
   const noMatch = !!data && data.length > 0 && filtered.length === 0;
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['bottom']}>
       {showControls && (
         <View style={styles.controls}>
           <TextInput
@@ -290,7 +290,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg,
   },
   controls: {
-    paddingTop: spacing.md,
+    paddingTop: spacing.xl,
     paddingHorizontal: spacing.lg,
     gap: spacing.sm,
     width: '100%',
@@ -303,8 +303,8 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: radii.md,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    fontSize: 14,
+    paddingVertical: spacing.md,
+    fontSize: 16,
     color: colors.text,
   },
   dropdownRow: {

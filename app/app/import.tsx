@@ -64,7 +64,16 @@ export default function ImportScreen() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['recipes'] });
       if (data.saved_id) {
-        router.replace(`/recipe/${data.saved_id}`);
+        // Fidélité passée en query params : affichée temporairement sur la fiche,
+        // perdue au prochain refresh / lors d'une navigation depuis la liste.
+        router.replace({
+          pathname: '/recipe/[id]',
+          params: {
+            id: data.saved_id,
+            ...(data.recipe.fidelity ? { fidelity: data.recipe.fidelity } : {}),
+            ...(data.recipe.fidelity_comment ? { fidelity_comment: data.recipe.fidelity_comment } : {}),
+          },
+        });
       } else {
         router.back();
       }
@@ -189,7 +198,7 @@ const styles = StyleSheet.create({
   },
   hint: { fontSize: 12, color: colors.textMuted },
   notesInput: {
-    minHeight: 200,
+    minHeight: 223,
     paddingTop: spacing.md,
     textAlignVertical: 'top',
     lineHeight: 20,
