@@ -103,14 +103,14 @@ export default function ImportScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.kav}
       >
-        {mutation.isError && (
-          <View style={[styles.statusBox, styles.statusError]}>
-            <Text style={styles.statusTitle}>Échec de l'import</Text>
-            <Text style={styles.statusText}>{(mutation.error as Error).message}</Text>
-          </View>
-        )}
+        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">   
+          {mutation.isError && (
+            <View style={[styles.statusBox, styles.statusError]}>
+              <Text style={styles.statusTitle}>Échec de l'import</Text>
+              <Text style={styles.statusText}>{(mutation.error as Error).message}</Text>
+            </View>
+          )}
 
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <Text style={styles.label}>Lien à importer</Text>
           <TextInput
             value={url}

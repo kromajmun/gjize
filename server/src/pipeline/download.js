@@ -22,6 +22,11 @@ const AUTH_ERROR_PATTERNS = {
     /confirm you'?re not a bot/i,
     /this video is unavailable/i, // souvent corrélé au bot check côté Railway
     /use --cookies/i, // yt-dlp suggère lui-même de fournir des cookies
+    // "Requested format is not available" sur IP datacenter sans cookies frais :
+    // YouTube ne renvoie aucun format exploitable (SABR + PO Token forcés).
+    // Traité comme un signal cookies dans la même logique d'invalidation /
+    // message actionnable, même si techniquement c'est une étape d'après.
+    /requested format is not available/i,
   ],
 };
 
@@ -86,7 +91,18 @@ export async function downloadAudio(url) {
     // `mweb` (mobile web) qui expose l'audio des Shorts de façon fiable —
     // `default` et `web_safari` servent de fallback pour les vidéos longues.
     ...(platform === 'youtube'
-      ? { extractorArgs: 'youtube:player_client=mweb,default,web_safari' }
+      ? {
+          extractorArgs: 'youtube:player_client=mweb,default,web_safari',
+          // CRUCIAL : sans runtime JS, yt-dlp ne peut pas résoudre le
+          // "n-sig challenge" de YouTube et seul le format 18 (mp4 muxed
+          // ~10 Mo) est récupérable. Avec node, on débloque les formats
+          // audio-only (opus 251 ≈ 500 Ko pour un Short) → bien plus rapide
+          // et fiable sur Railway. nixpacks.toml installe déjà nodejs_20.
+          jsRuntimes: 'node',
+          // Filet de sécurité : si jamais yt_dlp_ejs bundled est défaillant,
+          // récupère les composants JS depuis GitHub à la volée.
+          remoteComponents: 'ejs:github',
+        }
       : {}),
   };
 

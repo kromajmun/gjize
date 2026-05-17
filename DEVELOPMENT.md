@@ -71,6 +71,12 @@ Gjize/
 **Cause** : le SDK Supabase v2.45+ exige un transport WebSocket explicite si Node < 22, même quand on n'utilise pas le module realtime.
 **Fix** : `npm install ws` + `realtime: { transport: WebSocket }` à la création du client (`db/supabase.js`).
 
+### 3. YouTube : `Requested format is not available` sur Railway après rotation cookies
+**Symptôme** : juste après avoir rotaté les cookies YouTube (qui résolvaient bien le bot check précédent), yt-dlp échoue avec "Requested format is not available" sur certains Shorts.
+**Cause** : yt-dlp n'avait pas de runtime JavaScript déclaré (debug : `JS runtimes: none`), donc il ne pouvait pas résoudre le "n-sig challenge" de YouTube. Sans ça, les URLs des formats audio-only sont vides (skipped : "missing a URL. YouTube is forcing SABR streaming") et seul le format 18 (mp4 muxed ~10 Mo) reste accessible — qui lui-même n'est pas toujours dispo selon la vidéo / IP.
+**Fix** : passer `jsRuntimes: 'node'` à yt-dlp via youtube-dl-exec, plus `remoteComponents: 'ejs:github'` en safety net. Le binaire `node` est déjà dans nixpacks (`nodejs_20`), donc dispo en prod sans changement infra. Résultat : format 251 (opus audio-only ~500 Ko) maintenant accessible → import plus rapide ET plus fiable qu'avec le mp4 muxed.
+**Pattern de détection** : `requested format is not available` ajouté à `AUTH_ERROR_PATTERNS.youtube` pour que si le cas revient (par ex. après expiration cookies), l'utilisateur reçoive un message actionnable au lieu d'un générique "Échec".
+
 ---
 
 ## Décisions techniques

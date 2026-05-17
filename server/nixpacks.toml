@@ -1,4 +1,8 @@
 # Configuration Railway / Nixpacks
+# - nodejs_20 : runtime Express ET runtime JS utilisé par yt-dlp pour résoudre
+#   le n-sig challenge YouTube (cf. jsRuntimes: 'node' dans pipeline/download.js).
+#   Sans JS runtime dispo, yt-dlp tombe sur le format 18 mp4 muxed (~10 Mo) ou
+#   "Requested format is not available" selon la vidéo.
 # - ffmpeg : extraction audio (yt-dlp) + chunking 25 Mo
 # - python3 : youtube-dl-exec exige un binaire python lors de son preinstall,
 #   même quand il finit par utiliser son binaire yt-dlp bundlé. Sans Python,
