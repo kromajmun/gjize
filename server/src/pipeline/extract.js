@@ -32,7 +32,7 @@ Règles strictes :
 
 5. **Si la transcription ne contient PAS de recette** (vlog, tutoriel non culinaire, etc.) — appelle quand même save_recipe mais avec title="Pas une recette" et ingredients=[], steps=[]. Le serveur détectera ce cas.
 
-6. **N'invente jamais** une quantité, une étape ou un ingrédient absent de la transcription. Si tu hésites, omets plutôt qu'inventer.
+6. **Sources complémentaires** — La transcription ET la description sont des sources valides. Si un ingrédient ou une étape apparaît dans l'une mais pas l'autre, inclus-le quand même. N'invente jamais une quantité, une étape ou un ingrédient absent des DEUX sources. Si tu hésites, omets plutôt qu'inventer.
 
 7. **meal_type** — Catégorise la recette dans une (et une seule) des valeurs suivantes :
    - "plat" : tout ce qui est salé (entrée, plat principal, accompagnement, apéro, petit-déjeuner salé, sandwich, soupe…)
