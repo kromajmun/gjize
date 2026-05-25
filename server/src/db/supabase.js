@@ -278,6 +278,26 @@ export function invalidateCookiesCache(platform) {
 }
 
 /**
+ * Renvoie la liste des canonical_name existants (triés, déduplés).
+ * Utilisé pour injecter le catalogue dans le prompt Claude et éviter les doublons.
+ */
+export async function listCanonicalNames() {
+  const supabase = getSupabase();
+  if (!supabase) return [];
+
+  const { data, error } = await supabase
+    .from('ingredients')
+    .select('canonical_name')
+    .order('canonical_name', { ascending: true });
+
+  if (error) {
+    console.warn(`[listCanonicalNames] ${error.message}`);
+    return [];
+  }
+  return (data ?? []).map((r) => r.canonical_name);
+}
+
+/**
  * Liste les ingrédients du catalogue avec le nombre de recettes qui les utilisent.
  * Si `query` est fourni, filtre par sous-chaîne sur canonical_name (ILIKE %q%).
  */

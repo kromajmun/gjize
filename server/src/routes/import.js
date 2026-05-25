@@ -3,7 +3,7 @@ import { downloadAudio, detectPlatform } from '../pipeline/download.js';
 import { transcribeAudio } from '../pipeline/transcribe.js';
 import { extractRecipe, extractRecipeFromJsonLd } from '../pipeline/extract.js';
 import { scrapeRecipePage } from '../pipeline/scrape.js';
-import { saveRecipe, uploadThumbnailFromUrl } from '../db/supabase.js';
+import { saveRecipe, uploadThumbnailFromUrl, listCanonicalNames } from '../db/supabase.js';
 
 export const importRouter = Router();
 
@@ -31,6 +31,15 @@ importRouter.post('/import-recipe', async (req, res) => {
     let metadata;
     let transcript = null;
 
+    // Charger le catalogue existant pour guider Claude sur les canonical_name.
+    // Best-effort : si ça échoue, on continue sans (liste vide → pas de hint).
+    let canonicals = [];
+    try {
+      canonicals = await listCanonicalNames();
+    } catch (e) {
+      console.warn(`[import] listCanonicalNames échoué : ${e.message}`);
+    }
+
     if (platform === 'web') {
       console.log('[import] web — scraping JSON-LD…');
       const scraped = await scrapeRecipePage(url);
@@ -39,7 +48,7 @@ importRouter.post('/import-recipe', async (req, res) => {
         `[import] JSON-LD : "${scraped.recipe.title}" (${scraped.recipe.ingredients.length} ingrédients bruts, ${scraped.recipe.steps.length} étapes)`,
       );
       console.log('[import] normalisation Claude…');
-      recipe = await extractRecipeFromJsonLd(scraped.recipe, metadata, notesArg);
+      recipe = await extractRecipeFromJsonLd(scraped.recipe, metadata, notesArg, canonicals);
     } else {
       console.log(`[import] ${platform} — téléchargement audio…`);
       const downloadResult = await downloadAudio(url);
@@ -53,7 +62,7 @@ importRouter.post('/import-recipe', async (req, res) => {
       console.log(`[import] transcrit (${transcript.length} caractères)`);
 
       console.log('[import] extraction Claude…');
-      recipe = await extractRecipe(transcript, metadata, notesArg);
+      recipe = await extractRecipe(transcript, metadata, notesArg, canonicals);
     }
 
     console.log(

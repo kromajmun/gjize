@@ -3,6 +3,15 @@ import { config } from '../config.js';
 
 const client = new Anthropic({ apiKey: config.anthropicApiKey });
 
+/**
+ * Construit le bloc à injecter dans le prompt système pour orienter Claude vers
+ * les canonical_name déjà en base. Renvoie '' si la liste est vide (DB off).
+ */
+function buildCanonicalHint(existingCanonicals) {
+  if (!existingCanonicals || existingCanonicals.length === 0) return '';
+  return `\n\n**Catalogue existant** — Voici les canonical_name déjà en base. Réutilise-les en priorité avant d'en créer un nouveau. Si l'ingrédient correspond à l'un d'eux, utilise EXACTEMENT la même chaîne. Ne crée un nouveau canonical_name que si aucun ne correspond.\n${existingCanonicals.join(', ')}.`;
+}
+
 const SYSTEM_PROMPT = `Tu es un assistant qui extrait des recettes de cuisine depuis des transcriptions de vidéos.
 
 Tu reçois la transcription parlée d'une vidéo de cuisine (parfois accompagnée du titre et de la description de la vidéo). Ton travail est d'extraire la recette de façon structurée et propre, en français.
@@ -113,7 +122,7 @@ const SAVE_RECIPE_TOOL = {
  *   isRecipe: boolean
  * }>}
  */
-export async function extractRecipe(transcript, metadata = {}, notes = null) {
+export async function extractRecipe(transcript, metadata = {}, notes = null, existingCanonicals = []) {
   if (!transcript || transcript.trim().length < 20) {
     throw new Error('Transcription trop courte ou vide pour extraire une recette.');
   }
@@ -134,7 +143,7 @@ export async function extractRecipe(transcript, metadata = {}, notes = null) {
     system: [
       {
         type: 'text',
-        text: SYSTEM_PROMPT,
+        text: SYSTEM_PROMPT + buildCanonicalHint(existingCanonicals),
         cache_control: { type: 'ephemeral' },
       },
     ],
@@ -208,7 +217,7 @@ Appelle TOUJOURS le tool "save_recipe".`;
  * @param {object} [metadata]
  * @returns Même structure que extractRecipe()
  */
-export async function extractRecipeFromJsonLd(scrapedRecipe, metadata = {}, notes = null) {
+export async function extractRecipeFromJsonLd(scrapedRecipe, metadata = {}, notes = null, existingCanonicals = []) {
   if (!scrapedRecipe || !Array.isArray(scrapedRecipe.ingredients) || scrapedRecipe.ingredients.length === 0) {
     throw new Error('JSON-LD vide ou invalide.');
   }
@@ -240,7 +249,7 @@ export async function extractRecipeFromJsonLd(scrapedRecipe, metadata = {}, note
     system: [
       {
         type: 'text',
-        text: JSONLD_SYSTEM_PROMPT,
+        text: JSONLD_SYSTEM_PROMPT + buildCanonicalHint(existingCanonicals),
         cache_control: { type: 'ephemeral' },
       },
     ],
