@@ -134,8 +134,14 @@ export default function ImportScreen() {
                 placeholder="Recette en commentaire, adaptation, exclusion, précision…"
                 placeholderTextColor={colors.textMuted}
                 multiline
+                maxLength={2000}
                 style={[styles.input, styles.notesInput]}
               />
+              {notes.length >= 1800 && (
+                <Text style={[styles.hint, notes.length >= 2000 && { color: colors.accent }]}>
+                  {notes.length} / 2000
+                </Text>
+              )}
               <Text style={styles.notesHelp}>
                 Ce que tu écris ici prime sur la vidéo / la page.{'\n\n'}
                 • Recette en commentaire : recopie ingrédients + étapes{'\n'}

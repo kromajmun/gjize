@@ -48,12 +48,26 @@ const SORT_OPTIONS: { value: SortBy; label: string }[] = [
   { value: 'alpha', label: 'A → Z' },
 ];
 
+// État des filtres persisté au niveau module pour survivre aux navigations
+// (le composant se remonte quand on revient de la fiche recette).
+const persistedFilters = {
+  statusFilter: 'all' as StatusFilter,
+  mealTypeFilter: 'all' as MealTypeFilter,
+  sortBy: 'recent' as SortBy,
+  search: '',
+};
+
 export default function HomeScreen() {
   const router = useRouter();
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
-  const [mealTypeFilter, setMealTypeFilter] = useState<MealTypeFilter>('all');
-  const [sortBy, setSortBy] = useState<SortBy>('recent');
-  const [search, setSearch] = useState('');
+  const [statusFilter, _setStatusFilter] = useState<StatusFilter>(persistedFilters.statusFilter);
+  const [mealTypeFilter, _setMealTypeFilter] = useState<MealTypeFilter>(persistedFilters.mealTypeFilter);
+  const [sortBy, _setSortBy] = useState<SortBy>(persistedFilters.sortBy);
+  const [search, _setSearch] = useState(persistedFilters.search);
+
+  const setStatusFilter = (v: StatusFilter) => { persistedFilters.statusFilter = v; _setStatusFilter(v); };
+  const setMealTypeFilter = (v: MealTypeFilter) => { persistedFilters.mealTypeFilter = v; _setMealTypeFilter(v); };
+  const setSortBy = (v: SortBy) => { persistedFilters.sortBy = v; _setSortBy(v); };
+  const setSearch = (v: string) => { persistedFilters.search = v; _setSearch(v); };
 
   const { data, isLoading, error, refetch, isRefetching } = useQuery({
     queryKey: ['recipes'],

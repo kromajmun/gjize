@@ -121,8 +121,7 @@ export async function extractRecipe(transcript, metadata = {}, notes = null) {
   const userParts = [];
   if (metadata.title) userParts.push(`Titre de la vidéo : ${metadata.title}`);
   if (metadata.description) {
-    const truncated = metadata.description.slice(0, 1000);
-    userParts.push(`Description : ${truncated}`);
+    userParts.push(`Description : ${metadata.description}`);
   }
   userParts.push(`Transcription parlée :\n${transcript}`);
   if (notes) {
@@ -216,7 +215,7 @@ export async function extractRecipeFromJsonLd(scrapedRecipe, metadata = {}, note
 
   const parts = [`Titre : ${scrapedRecipe.title}`];
   if (scrapedRecipe.description) {
-    parts.push(`Description : ${scrapedRecipe.description.slice(0, 500)}`);
+    parts.push(`Description : ${scrapedRecipe.description}`);
   }
   if (scrapedRecipe.servings) parts.push(`recipeYield (servings) : ${scrapedRecipe.servings}`);
   if (typeof scrapedRecipe.prepTimeMinutes === 'number') {
