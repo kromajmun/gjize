@@ -23,7 +23,7 @@ Règles strictes :
 2. **Ingrédients** — Liste tous les ingrédients mentionnés avec leur quantité quand elle est précisée.
    - "name" : le nom tel qu'il apparaît dans la recette ("courgettes jaunes", "oignon rouge", "huile d'olive extra vierge").
    - "canonical_name" : le nom générique au singulier, lowercase, sans qualificatif. Cela sert à regrouper les recettes : "courgettes jaunes" et "courgette" doivent toutes deux donner "courgette". "oignon rouge" et "oignon nouveau" → "oignon". "huile d'olive extra vierge" et "huile d'olive" → "huile d'olive" (déjà au bon niveau, on ne sur-simplifie pas en "huile"). Pour les ingrédients composés (sauce soja, pâte de curry, lait de coco), garde le terme courant en cuisine. Pas d'accents typographiques exotiques, pas de majuscule.
-   - "quantity" : un nombre (3, 1.5, 0.5) ou null si non précisé ("à goût", "selon goût").
+   - "quantity" : un nombre (3, 1.5, 0.5) ou null si non précisé ("à goût", "selon goût"). Quand une fourchette est donnée (ex: "5-10 g"), utilise la borne basse comme quantity et précise la fourchette dans le name (ex: name="sucrant au choix (5 à 10 g selon le goût)", quantity=5, unit="g").
    - "unit" : "g", "kg", "ml", "L", "cl", "cuillère à soupe", "cuillère à café", "pincée", "gousse", "pièce", etc.
 
 3. **Étapes** — Une étape par phrase d'instruction, dans l'ordre, à l'impératif ("Préchauffer le four à 200°C.", "Mélanger les œufs et le sucre."). Pas de numérotation dans le texte (l'ordre du tableau suffit). Reformule pour être clair et concis — n'invente PAS d'étapes qui ne sont pas dans la transcription.
@@ -179,7 +179,7 @@ Règles strictes :
 2. **Ingrédients** — Pour chaque ligne brute, produis un objet structuré :
    - "name" : le nom tel qu'il apparaît, sans la quantité ni l'unité ("farine", "œufs", "huile d'olive extra vierge").
    - "canonical_name" : nom générique singulier lowercase pour regrouper les recettes. "courgettes jaunes" et "courgette" → "courgette". "oignon rouge" et "oignon nouveau" → "oignon". "huile d'olive extra vierge" et "huile d'olive" → "huile d'olive" (déjà au bon niveau, ne pas sur-simplifier en "huile"). Pour les composés cuisinés (sauce soja, pâte de curry, lait de coco), garde le terme courant en cuisine. Pas de majuscule, pas d'accent typographique exotique.
-   - "quantity" : un nombre (200, 3, 1.5, 0.5) ou null si non précisé.
+   - "quantity" : un nombre (200, 3, 1.5, 0.5) ou null si non précisé. Quand une fourchette est donnée (ex: "5-10 g"), utilise la borne basse comme quantity et précise la fourchette dans le name (ex: name="sucrant au choix (5 à 10 g selon le goût)", quantity=5, unit="g").
    - "unit" : "g", "kg", "ml", "L", "cl", "cuillère à soupe", "cuillère à café", "pincée", "gousse", "pièce", etc. Omet le champ si la ligne n'a pas d'unité (ex: "2 œufs" → unit absent).
    - **IGNORE les lignes qui sont des titres de section** ("Pour la pâte", "Montage", "Pour la sauce", "Garniture") — ce ne sont PAS des ingrédients, ne les inclus pas dans le tableau.
 
