@@ -9,7 +9,7 @@ const client = new Anthropic({ apiKey: config.anthropicApiKey });
  */
 function buildCanonicalHint(existingCanonicals) {
   if (!existingCanonicals || existingCanonicals.length === 0) return '';
-  return `\n\n**Catalogue existant** — Voici les canonical_name déjà en base. Réutilise-les en priorité avant d'en créer un nouveau. Si l'ingrédient correspond à l'un d'eux, utilise EXACTEMENT la même chaîne. Ne crée un nouveau canonical_name que si aucun ne correspond.\n${existingCanonicals.join(', ')}.`;
+  return `\n\n**Catalogue existant** — Voici les canonical_name déjà en base. Ce sont les noms génériques au singulier, lowercase, sans qualificatif. Cela sert à regrouper les recettes : "courgettes jaunes" et "courgette" doivent toutes deux donner "courgette". "oignon rouge" et "oignon nouveau" → "oignon". "huile d'olive extra vierge" et "huile d'olive" → "huile d'olive" (déjà au bon niveau, on ne sur-simplifie pas en "huile"). Pour les ingrédients composés (sauce soja, pâte de curry, lait de coco), garde le terme courant en cuisine. Pas d'accents typographiques exotiques, pas de majuscule. Réutilise-les en priorité avant d'en créer un nouveau. Si l'ingrédient correspond à l'un d'eux, utilise EXACTEMENT la même chaîne. Ne crée un nouveau canonical_name que si aucun ne correspond.\n${existingCanonicals.join(', ')}.`;
 }
 
 const SYSTEM_PROMPT = `Tu es un assistant qui extrait des recettes de cuisine depuis des transcriptions de vidéos.
