@@ -50,13 +50,17 @@ function buildWhisperPrompt(metadata = {}) {
  * multipart se fait couper (ECONNRESET) sur certains réseaux. Undici
  * gère mieux les uploads multipart sur connexions instables.
  *
+ * On ne force AUCUNE langue : Whisper détecte celle qui est parlée. Forcer
+ * `fr` obligeait Whisper à rendre du français même sur une vidéo allemande ou
+ * serbe — il produisait alors une bouillie phonétique inexploitable. Claude
+ * extrait la recette en français quelle que soit la langue du transcript.
+ *
  * @param {string[]} audioFiles
- * @param {string} [language='fr']
  * @param {object} [metadata] - { title, description } de la vidéo, utilisées
  *   comme amorce de vocabulaire (cf. buildWhisperPrompt).
  * @returns {Promise<string>}
  */
-export async function transcribeAudio(audioFiles, language = 'fr', metadata = {}) {
+export async function transcribeAudio(audioFiles, metadata = {}) {
   if (!audioFiles || audioFiles.length === 0) {
     throw new Error('Aucun fichier audio à transcrire.');
   }
@@ -65,12 +69,12 @@ export async function transcribeAudio(audioFiles, language = 'fr', metadata = {}
   if (prompt) console.log(`[transcribe] amorce vocabulaire : ${prompt.length} caractères`);
 
   const transcriptions = await Promise.all(
-    audioFiles.map((filePath) => transcribeOne(filePath, language, prompt)),
+    audioFiles.map((filePath) => transcribeOne(filePath, prompt)),
   );
   return transcriptions.join('\n').trim();
 }
 
-async function transcribeOne(filePath, language, prompt) {
+async function transcribeOne(filePath, prompt) {
   const { size } = await stat(filePath);
   console.log(`[transcribe] ${path.basename(filePath)} : ${(size / 1024).toFixed(1)} Ko`);
 
@@ -96,7 +100,6 @@ async function transcribeOne(filePath, language, prompt) {
       const form = new FormData();
       form.append('file', new Blob([buffer], { type: 'audio/mpeg' }), filename);
       form.append('model', config.whisperModel);
-      form.append('language', language);
       form.append('response_format', 'text');
       if (prompt) form.append('prompt', prompt);
 
