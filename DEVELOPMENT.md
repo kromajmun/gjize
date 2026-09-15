@@ -77,6 +77,12 @@ Gjize/
 **Fix** : passer `jsRuntimes: 'node'` à yt-dlp via youtube-dl-exec, plus `remoteComponents: 'ejs:github'` en safety net. Le binaire `node` est déjà dans nixpacks (`nodejs_20`), donc dispo en prod sans changement infra. Résultat : format 251 (opus audio-only ~500 Ko) maintenant accessible → import plus rapide ET plus fiable qu'avec le mp4 muxed.
 **Pattern de détection** : `requested format is not available` ajouté à `AUTH_ERROR_PATTERNS.youtube` pour que si le cas revient (par ex. après expiration cookies), l'utilisateur reçoive un message actionnable au lieu d'un générique "Échec".
 
+### 4. Instagram : `Postprocessing: WARNING: unable to obtain file audio codec with ffprobe`
+**Symptôme** : l'import Instagram échoue avec le message générique "Cette URL est peut-être privée ou inaccessible", alors que les cookies sont valides (l'étape `dumpSingleJson` passe, les métadonnées sont bien récupérées).
+**Cause** : le sélecteur `bestaudio*/best` prenait un format **sans piste audio**. Instagram expose pour un même Reel : une piste DASH audio-only m4a (~200 Ko), 3 mp4 progressifs aux codecs `unknown`, et 8 rendus DASH **video-only** VP9. `bestaudio*` = "meilleur format *contenant* de l'audio", et il classe les mp4 `unknown` (codecs non connus, donc supposés avoir de l'audio) au-dessus de la piste audio réelle. Selon la liste de formats servie par Instagram (qui varie avec l'IP — datacenter Railway ≠ IP résidentielle), yt-dlp retombait sur un rendu video-only, et ffprobe n'y trouvait évidemment aucun codec audio. Erreur reproduite à l'identique en forçant `-f dash-<id>v` (video-only) sur la même URL.
+**Fix** : sélecteur `bestaudio/bestaudio*/best`. `bestaudio` (sans `*`) ne matche QUE les formats audio-only → piste audio garantie ; les deux crans suivants conservent l'ancien comportement en fallback (Shorts sans audio-only pur, puis anti-"Requested format is not available"). Effet de bord bienvenu : 209 Ko téléchargés au lieu de 6,8 Mo sur l'URL testée, import de bout en bout en ~2,4 s.
+**Message d'erreur** : `NO_AUDIO_PATTERN` ajouté dans `pipeline/download.js` — si ffprobe ne trouve pas d'audio malgré tout (post photo, carrousel, vidéo muette), l'utilisateur reçoit un message qui dit ça, au lieu d'être envoyé sur la fausse piste des cookies.
+
 ---
 
 ## Décisions techniques
@@ -93,6 +99,12 @@ Le prompt système (~1.5k tokens d'instructions) est cacheable via `cache_contro
 
 ### Whisper via `fetch` natif (pas le SDK OpenAI)
 Cf bug #1. L'OpenAI SDK reste utilisé en dépendance pour le helper `toFile`, mais on l'a finalement supprimé du code de transcription au profit d'un appel direct à `https://api.openai.com/v1/audio/transcriptions`.
+
+### Amorce de vocabulaire Whisper (paramètre `prompt`)
+**Problème** : sur un Reel Instagram avec musique de fond, Whisper produit des *artefacts de reconnaissance vocale* — confusions phonétiques sur les noms d'ingrédients ("pâte filo" → "patte de vélo"), boucles de répétition, phrases hallucinées pour combler l'inaudible. Claude s'en rend compte (il l'a signalé dans `fidelity_comment`) et se rabat sur la description écrite, mais la transcription est alors payée pour rien.
+**Fix** : `transcribeAudio(audioFiles, 'fr', metadata)` passe désormais le titre + la description de la vidéo dans le paramètre `prompt` de Whisper (`buildWhisperPrompt` dans `pipeline/transcribe.js`). Whisper s'en sert comme amorce : les mots du prompt deviennent plus probables à la transcription, donc les noms d'ingrédients déjà présents dans la description sortent correctement.
+**Nettoyage** : URLs, hashtags et mentions sont retirés avant envoi — ce sont les 3 sources de bruit des descriptions Instagram, ils mangent le quota sans rien amorcer d'utile. Cap à 800 caractères (Whisper tronque à 224 tokens et ignore le surplus silencieusement), coupé sur une frontière de mot.
+**Limite connue** : sur un audio réellement vide ou purement musical, Whisper a tendance à recracher des bouts du prompt comme s'ils avaient été prononcés. Le garde-fou reste la règle 6 du prompt Claude (n'inventer aucune quantité absente des deux sources) + le champ `fidelity`.
 
 ### App passe uniquement par le serveur, pas directement par Supabase
 - Évite de gérer la clé anon Supabase + les politiques RLS en V1 (mono-user, pas d'auth).

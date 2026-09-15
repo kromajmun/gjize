@@ -58,7 +58,7 @@ importRouter.post('/import-recipe', async (req, res) => {
       console.log(`[import] téléchargé (${audioFiles.length} chunk${audioFiles.length > 1 ? 's' : ''})`);
 
       console.log('[import] transcription Whisper…');
-      transcript = await transcribeAudio(audioFiles);
+      transcript = await transcribeAudio(audioFiles, 'fr', metadata);
       console.log(`[import] transcrit (${transcript.length} caractères)`);
 
       console.log('[import] extraction Claude…');

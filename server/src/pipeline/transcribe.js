@@ -5,6 +5,43 @@ import { config } from '../config.js';
 const WHISPER_URL = 'https://api.openai.com/v1/audio/transcriptions';
 const MAX_ATTEMPTS = 3;
 
+// Whisper cape son paramètre `prompt` à 224 tokens et ignore silencieusement
+// le surplus. ~800 caractères de français tiennent sous cette limite.
+const MAX_PROMPT_CHARS = 800;
+
+/**
+ * Construit le `prompt` Whisper à partir des métadonnées de la vidéo.
+ *
+ * Whisper s'en sert comme amorce de vocabulaire : les mots qui y figurent
+ * deviennent plus probables à la transcription. Sur un Reel avec musique de
+ * fond, ça réduit les confusions phonétiques sur les noms d'ingrédients
+ * (« pâte filo » entendu « patte de vélo »).
+ *
+ * On nettoie URLs, hashtags et mentions : ce sont les 3 sources de bruit des
+ * descriptions Instagram, elles mangent le quota de tokens sans rien amorcer
+ * d'utile — et Whisper a tendance à les recracher telles quelles si l'audio
+ * est inaudible.
+ *
+ * @param {object} [metadata] - { title, description }
+ * @returns {string|null} le prompt, ou null si rien d'exploitable
+ */
+function buildWhisperPrompt(metadata = {}) {
+  const raw = [metadata?.title, metadata?.description].filter(Boolean).join('. ');
+  if (!raw) return null;
+
+  const cleaned = raw
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/[#@]\S+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!cleaned) return null;
+
+  if (cleaned.length <= MAX_PROMPT_CHARS) return cleaned;
+  // Coupe sur une frontière de mot pour ne pas finir sur un mot tronqué,
+  // que Whisper amorcerait alors de travers.
+  return cleaned.slice(0, MAX_PROMPT_CHARS).replace(/\s+\S*$/, '');
+}
+
 /**
  * Transcrit un ou plusieurs fichiers audio via Whisper.
  *
@@ -15,20 +52,25 @@ const MAX_ATTEMPTS = 3;
  *
  * @param {string[]} audioFiles
  * @param {string} [language='fr']
+ * @param {object} [metadata] - { title, description } de la vidéo, utilisées
+ *   comme amorce de vocabulaire (cf. buildWhisperPrompt).
  * @returns {Promise<string>}
  */
-export async function transcribeAudio(audioFiles, language = 'fr') {
+export async function transcribeAudio(audioFiles, language = 'fr', metadata = {}) {
   if (!audioFiles || audioFiles.length === 0) {
     throw new Error('Aucun fichier audio à transcrire.');
   }
 
+  const prompt = buildWhisperPrompt(metadata);
+  if (prompt) console.log(`[transcribe] amorce vocabulaire : ${prompt.length} caractères`);
+
   const transcriptions = await Promise.all(
-    audioFiles.map((filePath) => transcribeOne(filePath, language)),
+    audioFiles.map((filePath) => transcribeOne(filePath, language, prompt)),
   );
   return transcriptions.join('\n').trim();
 }
 
-async function transcribeOne(filePath, language) {
+async function transcribeOne(filePath, language, prompt) {
   const { size } = await stat(filePath);
   console.log(`[transcribe] ${path.basename(filePath)} : ${(size / 1024).toFixed(1)} Ko`);
 
@@ -56,6 +98,7 @@ async function transcribeOne(filePath, language) {
       form.append('model', config.whisperModel);
       form.append('language', language);
       form.append('response_format', 'text');
+      if (prompt) form.append('prompt', prompt);
 
       const response = await fetch(WHISPER_URL, {
         method: 'POST',
