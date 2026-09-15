@@ -30,6 +30,12 @@ const AUTH_ERROR_PATTERNS = {
   ],
 };
 
+// yt-dlp a bien téléchargé un fichier, mais ffprobe n'y trouve aucune piste
+// audio : format video-only sélectionné, vidéo muette, ou post photo/carrousel.
+// Rien à voir avec un problème d'accès — on ne veut pas envoyer l'utilisateur
+// sur la fausse piste des cookies.
+const NO_AUDIO_PATTERN = /unable to obtain file audio codec/i;
+
 function isAuthError(platform, message) {
   const patterns = AUTH_ERROR_PATTERNS[platform] ?? [];
   return patterns.some((re) => re.test(message ?? ''));
@@ -125,11 +131,17 @@ export async function downloadAudio(url) {
       extractAudio: true,
       audioFormat: 'mp3',
       audioQuality: 5, // qualité moyenne, suffisant pour Whisper
-      // Sélecteur explicite avec fallback : `bestaudio*` couvre audio-only
-      // ET muxed-with-audio (utile sur Shorts où l'audio-only pur n'existe
-      // parfois pas). Évite "Requested format is not available" quand le
-      // défaut implicite (`bestaudio/best`) ne matche rien.
-      format: 'bestaudio*/best',
+      // Sélecteur explicite avec fallbacks, du plus sûr au plus permissif :
+      // - `bestaudio` (sans `*`) ne matche QUE les formats audio-only : la
+      //   piste audio est garantie. Sur Instagram c'est le DASH m4a (~200 Ko)
+      //   au lieu du mp4 muxed (~7 Mo) — 30x moins de données à télécharger.
+      // - `bestaudio*` couvre le muxed-with-audio, utile sur les Shorts où
+      //   l'audio-only pur n'existe parfois pas.
+      // - `best` en dernier recours, contre "Requested format is not available".
+      // Sans le premier cran, yt-dlp classait les formats Instagram aux codecs
+      // `unknown` au-dessus de la piste audio et pouvait retomber sur un rendu
+      // video-only -> "unable to obtain file audio codec with ffprobe".
+      format: 'bestaudio/bestaudio*/best',
       postprocessorArgs: 'ffmpeg:-ac 1 -ar 16000 -b:a 64k', // mono, 16kHz, 64kbps
     });
   } catch (err) {
@@ -153,6 +165,11 @@ export async function downloadAudio(url) {
           `YouTube demande une vérification "I'm not a bot" (typique sur IP Railway). Va dans Supabase Dashboard > Storage > secrets et ${action}.`,
         );
       }
+    }
+    if (NO_AUDIO_PATTERN.test(errMsg)) {
+      throw new Error(
+        "Aucune piste audio dans le média téléchargé. Si le contenu est une photo, un carrousel ou une vidéo muette, l'import n'est pas possible. Sinon c'est le format sélectionné qui n'en contenait pas : réessaie.",
+      );
     }
     if (platform === 'instagram') {
       throw new Error(
