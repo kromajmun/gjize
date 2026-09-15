@@ -36,9 +36,92 @@ const AUTH_ERROR_PATTERNS = {
 // sur la fausse piste des cookies.
 const NO_AUDIO_PATTERN = /unable to obtain file audio codec/i;
 
+// Aucun format vidéo du tout : post photo ou carrousel d'images. Même issue que
+// NO_AUDIO (import sur la description), mais inutile de retenter le
+// téléchargement : il n'y a rien à récupérer.
+const NO_MEDIA_PATTERN = /no video formats found|there'?s no video in this post|no media found/i;
+
 function isAuthError(platform, message) {
   const patterns = AUTH_ERROR_PATTERNS[platform] ?? [];
   return patterns.some((re) => re.test(message ?? ''));
+}
+
+/**
+ * Traduit une erreur yt-dlp en message actionnable pour l'utilisateur.
+ * Effet de bord assumé : invalide le cache cookies quand l'erreur en signale
+ * l'expiration, pour que le prochain essai les retélécharge depuis Storage.
+ */
+function buildDownloadError(platform, cookiesPath, errMsg) {
+  if (isAuthError(platform, errMsg)) {
+    invalidateCookiesCache(platform);
+    if (platform === 'instagram') {
+      return new Error(
+        'Cookies Instagram expirés ou invalides. Va dans Supabase Dashboard > Storage > secrets > instagram_cookies.txt et remplace le fichier (export Netscape depuis Chrome avec ton compte dédié).',
+      );
+    }
+    if (platform === 'youtube') {
+      const action = cookiesPath
+        ? 'remplace le fichier (export Netscape depuis Chrome avec un compte YouTube — idéalement dédié)'
+        : 'upload un fichier youtube_cookies.txt (format Netscape, export depuis Chrome avec un compte YouTube — idéalement dédié)';
+      return new Error(
+        `YouTube demande une vérification "I'm not a bot" (typique sur IP Railway). Va dans Supabase Dashboard > Storage > secrets et ${action}.`,
+      );
+    }
+  }
+  if (platform === 'instagram') {
+    return new Error(
+      `Échec du téléchargement Instagram. Cette URL est peut-être privée ou inaccessible. Détail : ${errMsg}`,
+    );
+  }
+  return new Error(`Échec du téléchargement (${platform}) : ${errMsg}`);
+}
+
+/**
+ * Demande à ffprobe si le fichier contient au moins une piste audio.
+ * Sortie vide (ou ffprobe en erreur) = pas d'audio.
+ */
+async function hasAudioStream(filePath) {
+  try {
+    const { stdout } = await execAsync(
+      `ffprobe -v error -select_streams a -show_entries stream=codec_type -of csv=p=0 "${filePath}"`,
+    );
+    return stdout.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Deuxième chance après "unable to obtain file audio codec".
+ *
+ * Le sélecteur `bestaudio` → `bestaudio*` → `best` s'arrête au PREMIER cran
+ * qui matche :
+ * si `bestaudio` attrape un rendu video-only (codecs `unknown`, fréquent sur
+ * Instagram), yt-dlp télécharge celui-là et échoue — il ne retombe jamais sur
+ * `best`. On refait donc le tour avec le média complet muxé, et c'est ffprobe
+ * qui tranche : piste audio présente → on l'extrait nous-mêmes ; aucune →
+ * le média est réellement muet (photo, carrousel, vidéo sans son).
+ *
+ * @returns {Promise<string|null>} chemin du mp3 extrait, ou null si média muet
+ */
+async function retryViaFullMedia(url, baseOpts, workDir, audioPath) {
+  await youtubeDlExec(url, {
+    ...baseOpts,
+    output: path.join(workDir, 'media.%(ext)s'),
+    format: 'best',
+  });
+
+  const media = (await readdir(workDir)).find((f) => f.startsWith('media.'));
+  if (!media) return null;
+
+  const mediaPath = path.join(workDir, media);
+  if (!(await hasAudioStream(mediaPath))) return null;
+
+  // Mêmes paramètres que le postprocessor yt-dlp : mono 16 kHz 64 kbps.
+  await execAsync(
+    `ffmpeg -i "${mediaPath}" -vn -ac 1 -ar 16000 -b:a 64k "${audioPath}" -y -loglevel error`,
+  );
+  return audioPath;
 }
 
 const WHISPER_MAX_BYTES = 24 * 1024 * 1024; // 24 Mo de marge sous la limite 25 Mo de Whisper
@@ -57,8 +140,13 @@ export function detectPlatform(url) {
  * Télécharge l'audio d'une vidéo et le retourne en mp3 mono 64kbps.
  * Si le fichier dépasse 24 Mo, segmente en chunks de 10 min via ffmpeg.
  *
+ * Si le média n'a aucune piste audio (photo, carrousel, vidéo muette), ce n'est
+ * pas une erreur : on renvoie `audioFiles: []` + `noAudio: true` avec les
+ * métadonnées, et l'appelant enchaîne sur la description seule.
+ *
  * @returns {Promise<{
  *   audioFiles: string[],
+ *   noAudio: boolean,
  *   metadata: { title?: string, description?: string, thumbnailUrl?: string, durationSeconds?: number },
  *   workDir: string,
  *   cleanup: () => Promise<void>
@@ -113,6 +201,7 @@ export async function downloadAudio(url) {
   };
 
   let metadata = {};
+  let noAudio = false;
   try {
     const info = await youtubeDlExec(url, {
       ...baseOpts,
@@ -145,43 +234,52 @@ export async function downloadAudio(url) {
       postprocessorArgs: 'ffmpeg:-ac 1 -ar 16000 -b:a 64k', // mono, 16kHz, 64kbps
     });
   } catch (err) {
-    await cleanup();
     const errMsg = err.message ?? err.stderr ?? '';
-    // Si yt-dlp signale un problème d'auth, on invalide le cache pour qu'au
-    // prochain essai on retéléchargera les cookies depuis Storage (au cas où
-    // l'utilisateur vient de les rotater).
-    if (isAuthError(platform, errMsg)) {
-      invalidateCookiesCache(platform);
-      if (platform === 'instagram') {
-        throw new Error(
-          'Cookies Instagram expirés ou invalides. Va dans Supabase Dashboard > Storage > secrets > instagram_cookies.txt et remplace le fichier (export Netscape depuis Chrome avec ton compte dédié).',
-        );
+
+    // Pas d'audio dans ce qui a été téléchargé : ce n'est pas forcément une
+    // impasse. On retente sur le média complet, et si le média est vraiment
+    // muet on rend la main sans audio — l'import continuera sur la seule
+    // description (cf. routes/import.js).
+    if (NO_AUDIO_PATTERN.test(errMsg) || NO_MEDIA_PATTERN.test(errMsg)) {
+      let recovered = null;
+      if (NO_AUDIO_PATTERN.test(errMsg)) {
+        console.warn('[download] format sans piste audio — nouvelle tentative sur le média complet…');
+        try {
+          recovered = await retryViaFullMedia(url, baseOpts, workDir, audioPath);
+        } catch (retryErr) {
+          console.warn(`[download] retry média complet échoué : ${retryErr.message}`);
+        }
       }
-      if (platform === 'youtube') {
-        const action = cookiesPath
-          ? 'remplace le fichier (export Netscape depuis Chrome avec un compte YouTube — idéalement dédié)'
-          : 'upload un fichier youtube_cookies.txt (format Netscape, export depuis Chrome avec un compte YouTube — idéalement dédié)';
-        throw new Error(
-          `YouTube demande une vérification "I'm not a bot" (typique sur IP Railway). Va dans Supabase Dashboard > Storage > secrets et ${action}.`,
-        );
+      if (recovered) {
+        console.log('[download] audio récupéré depuis le média complet');
+        noAudio = false;
+      } else {
+        console.warn('[download] média sans piste audio — extraction depuis la description seule');
+        noAudio = true;
       }
+    } else {
+      await cleanup();
+      throw buildDownloadError(platform, cookiesPath, errMsg);
     }
-    if (NO_AUDIO_PATTERN.test(errMsg)) {
+  }
+
+  if (noAudio) {
+    // Sans audio, la description (légende Instagram) est la seule source
+    // possible : s'il n'y a rien non plus de ce côté, autant le dire tout de
+    // suite plutôt que de payer un appel Claude pour rien.
+    const fallbackSource = `${metadata.title ?? ''} ${metadata.description ?? ''}`.trim();
+    if (!fallbackSource) {
+      await cleanup();
       throw new Error(
-        "Aucune piste audio dans le média téléchargé. Si le contenu est une photo, un carrousel ou une vidéo muette, l'import n'est pas possible. Sinon c'est le format sélectionné qui n'en contenait pas : réessaie.",
+        "Ce média n'a pas de piste audio (photo, carrousel ou vidéo muette) et aucune description exploitable : il n'y a rien à importer.",
       );
     }
-    if (platform === 'instagram') {
-      throw new Error(
-        `Échec du téléchargement Instagram. Cette URL est peut-être privée ou inaccessible. Détail : ${errMsg}`,
-      );
-    }
-    throw new Error(`Échec du téléchargement (${platform}) : ${errMsg}`);
+    return { audioFiles: [], noAudio: true, metadata, workDir, cleanup };
   }
 
   const { size } = await stat(audioPath);
   if (size <= WHISPER_MAX_BYTES) {
-    return { audioFiles: [audioPath], metadata, workDir, cleanup };
+    return { audioFiles: [audioPath], noAudio: false, metadata, workDir, cleanup };
   }
 
   // Chunking : ffmpeg -f segment
@@ -201,5 +299,5 @@ export async function downloadAudio(url) {
     throw new Error('Le découpage audio a échoué (aucun chunk généré).');
   }
 
-  return { audioFiles: chunks, metadata, workDir, cleanup };
+  return { audioFiles: chunks, noAudio: false, metadata, workDir, cleanup };
 }

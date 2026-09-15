@@ -30,6 +30,7 @@ importRouter.post('/import-recipe', async (req, res) => {
     let recipe;
     let metadata;
     let transcript = null;
+    let noAudio = false;
 
     // Charger le catalogue existant pour guider Claude sur les canonical_name.
     // Best-effort : si ça échoue, on continue sans (liste vide → pas de hint).
@@ -55,11 +56,19 @@ importRouter.post('/import-recipe', async (req, res) => {
       cleanup = downloadResult.cleanup;
       const { audioFiles } = downloadResult;
       metadata = downloadResult.metadata;
-      console.log(`[import] téléchargé (${audioFiles.length} chunk${audioFiles.length > 1 ? 's' : ''})`);
+      noAudio = downloadResult.noAudio;
 
-      console.log('[import] transcription Whisper…');
-      transcript = await transcribeAudio(audioFiles, metadata);
-      console.log(`[import] transcrit (${transcript.length} caractères)`);
+      if (noAudio) {
+        // Média sans piste audio (photo, carrousel, vidéo muette) : pas de
+        // Whisper à appeler, mais la légende Instagram porte souvent la
+        // recette complète. On enchaîne sur la description seule.
+        console.log('[import] aucune piste audio — extraction depuis la description seule');
+      } else {
+        console.log(`[import] téléchargé (${audioFiles.length} chunk${audioFiles.length > 1 ? 's' : ''})`);
+        console.log('[import] transcription Whisper…');
+        transcript = await transcribeAudio(audioFiles, metadata);
+        console.log(`[import] transcrit (${transcript.length} caractères)`);
+      }
 
       console.log('[import] extraction Claude…');
       recipe = await extractRecipe(transcript, metadata, notesArg, canonicals);
@@ -70,11 +79,15 @@ importRouter.post('/import-recipe', async (req, res) => {
     );
 
     if (!recipe.isRecipe) {
+      let reason = 'Cette vidéo ne semble pas contenir de recette de cuisine.';
+      if (platform === 'web') {
+        reason = 'La page ne semble pas contenir une recette de cuisine.';
+      } else if (noAudio) {
+        reason =
+          "Ce média n'a pas de piste audio (photo, carrousel ou vidéo muette) et sa description ne contient pas de recette exploitable. Ajoute la recette dans les notes pour l'importer quand même.";
+      }
       return res.status(422).json({
-        error:
-          platform === 'web'
-            ? "La page ne semble pas contenir une recette de cuisine."
-            : 'Cette vidéo ne semble pas contenir de recette de cuisine.',
+        error: reason,
         transcript_excerpt: transcript ? transcript.slice(0, 200) : undefined,
       });
     }

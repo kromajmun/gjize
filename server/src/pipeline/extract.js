@@ -109,7 +109,7 @@ const SAVE_RECIPE_TOOL = {
 /**
  * Extrait une recette structurée depuis une transcription.
  *
- * @param {string} transcript - Transcription brute de la vidéo
+ * @param {string|null} transcript - Transcription brute, ou null si le média n'a pas d'audio
  * @param {object} [metadata] - Métadonnées optionnelles { title, description }
  * @returns {Promise<{
  *   title: string,
@@ -123,8 +123,12 @@ const SAVE_RECIPE_TOOL = {
  * }>}
  */
 export async function extractRecipe(transcript, metadata = {}, notes = null, existingCanonicals = []) {
-  if (!transcript || transcript.trim().length < 20) {
-    throw new Error('Transcription trop courte ou vide pour extraire une recette.');
+  const hasTranscript = typeof transcript === 'string' && transcript.trim().length >= 20;
+  const hasDescription = (metadata.description ?? '').trim().length >= 20;
+  // Une des deux sources suffit : un post sans piste audio (photo, carrousel,
+  // vidéo muette) reste importable si sa description porte la recette.
+  if (!hasTranscript && !hasDescription) {
+    throw new Error('Aucune source exploitable : ni transcription ni description.');
   }
 
   const userParts = [];
@@ -132,7 +136,15 @@ export async function extractRecipe(transcript, metadata = {}, notes = null, exi
   if (metadata.description) {
     userParts.push(`Description : ${metadata.description}`);
   }
-  userParts.push(`Transcription parlée :\n${transcript}`);
+  if (hasTranscript) {
+    userParts.push(`Transcription parlée :\n${transcript}`);
+  } else {
+    // Consigne dans le message utilisateur et non dans le prompt système : le
+    // système reste identique d'un import à l'autre, donc le cache reste hit.
+    userParts.push(
+      "Transcription parlée : aucune — le média n'a pas de piste audio (photo, carrousel ou vidéo muette). Extrais la recette depuis le titre, la description et les éventuelles notes utilisateur uniquement. N'invente rien qui n'y figure pas : s'il manque des quantités ou des étapes, laisse-les vides et dis-le dans fidelity_comment.",
+    );
+  }
   if (notes) {
     userParts.push(`Notes utilisateur (à appliquer en priorité sur la transcription) :\n${notes}`);
   }
