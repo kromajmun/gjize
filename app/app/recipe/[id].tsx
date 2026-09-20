@@ -186,12 +186,20 @@ export default function RecipeScreen() {
           </Section>
 
           <Section title="Étapes">
-            {recipe.steps.map((step, i) => (
-              <View key={i} style={styles.stepRow}>
-                <Text style={styles.stepNumber}>{i + 1}</Text>
-                <Text style={styles.stepText}>{step}</Text>
-              </View>
-            ))}
+            {recipe.steps.length === 0 ? (
+              // Import sans audio dont la source ne décrivait aucune préparation :
+              // on préfère l'assumer plutôt que de laisser Claude deviner les étapes.
+              <Text style={styles.stepsEmpty}>
+                La source ne détaillait aucune étape de préparation.
+              </Text>
+            ) : (
+              recipe.steps.map((step, i) => (
+                <View key={i} style={styles.stepRow}>
+                  <Text style={styles.stepNumber}>{i + 1}</Text>
+                  <Text style={styles.stepText}>{step}</Text>
+                </View>
+              ))
+            )}
           </Section>
         </View>
       </ScrollView>
@@ -389,6 +397,7 @@ const styles = StyleSheet.create({
     lineHeight: 28,
   },
   stepText: { flex: 1, fontSize: 15, color: colors.text, lineHeight: 22 },
+  stepsEmpty: { fontSize: 15, color: colors.textMuted, lineHeight: 22, fontStyle: 'italic' },
   deleteHeader: { color: colors.danger, fontSize: 15, fontWeight: '500', marginRight: 12 },
   fidelity: {
     borderLeftWidth: 4,

@@ -1,6 +1,6 @@
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, rm, stat, readdir } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, stat, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import youtubeDlExec from 'youtube-dl-exec';
@@ -30,21 +30,42 @@ const AUTH_ERROR_PATTERNS = {
   ],
 };
 
-// yt-dlp a bien téléchargé un fichier, mais ffprobe n'y trouve aucune piste
-// audio : format video-only sélectionné, vidéo muette, ou post photo/carrousel.
-// Rien à voir avec un problème d'accès — on ne veut pas envoyer l'utilisateur
-// sur la fausse piste des cookies.
-const NO_AUDIO_PATTERN = /unable to obtain file audio codec/i;
+// Le post ne contient aucune vidéo (photo seule) : l'extracteur s'arrête avant
+// de renvoyer quoi que ce soit, on n'a donc même pas de description à exploiter.
+// Formulation exacte côté yt-dlp : "There is no video in this post"
+// (extractor/instagram.py) — la variante "there's" ne matchait jamais.
+const NO_MEDIA_PATTERN = /there is no video in this post|no video formats found|no media found/i;
 
-// Aucun format vidéo du tout : post photo ou carrousel d'images. Même issue que
-// NO_AUDIO (import sur la description), mais inutile de retenter le
-// téléchargement : il n'y a rien à récupérer.
-const NO_MEDIA_PATTERN = /no video formats found|there'?s no video in this post|no media found/i;
+// Combien de formats on tente avant d'abandonner. Au-delà on paie du temps de
+// téléchargement pour des rendus de plus en plus improbables.
+const MAX_FORMAT_CANDIDATES = 4;
+// Deux passes sur la liste : un 403 / rate-limit Instagram depuis une IP
+// datacenter est transitoire, alors qu'un média réellement muet le reste.
+const DOWNLOAD_PASSES = 2;
+const PASS_BACKOFF_MS = 2000;
 
 function isAuthError(platform, message) {
   const patterns = AUTH_ERROR_PATTERNS[platform] ?? [];
   return patterns.some((re) => re.test(message ?? ''));
 }
+
+/** Sortie d'erreur yt-dlp : stderr en priorité, c'est là qu'est le détail utile. */
+function errText(err) {
+  return String(err?.stderr || err?.message || '').trim();
+}
+
+/** Les dernières lignes d'une sortie yt-dlp, pour les glisser dans un message court. */
+function errExcerpt(text, maxChars = 300) {
+  const tail = text
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .slice(-2)
+    .join(' / ');
+  return tail.length > maxChars ? `${tail.slice(0, maxChars)}…` : tail;
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * Traduit une erreur yt-dlp en message actionnable pour l'utilisateur.
@@ -77,51 +98,128 @@ function buildDownloadError(platform, cookiesPath, errMsg) {
 }
 
 /**
- * Demande à ffprobe si le fichier contient au moins une piste audio.
- * Sortie vide (ou ffprobe en erreur) = pas d'audio.
+ * ffprobe : le fichier contient-il au moins une piste audio ?
+ *
+ * Throw si ffprobe lui-même échoue (binaire absent, fichier tronqué ou
+ * illisible). Une erreur ffprobe n'est PAS une preuve d'absence d'audio —
+ * c'est exactement cette confusion qui faisait passer des vidéos sonores pour
+ * des médias muets, et produisait des recettes aux étapes devinées.
  */
 async function hasAudioStream(filePath) {
-  try {
-    const { stdout } = await execAsync(
-      `ffprobe -v error -select_streams a -show_entries stream=codec_type -of csv=p=0 "${filePath}"`,
-    );
-    return stdout.trim().length > 0;
-  } catch {
-    return false;
-  }
+  const { stdout } = await execAsync(
+    `ffprobe -v error -select_streams a -show_entries stream=codec_type -of csv=p=0 "${filePath}"`,
+  );
+  return stdout.trim().length > 0;
 }
 
 /**
- * Deuxième chance après "unable to obtain file audio codec".
+ * Formats susceptibles de porter de l'audio, du moins cher au plus cher.
  *
- * Le sélecteur `bestaudio` → `bestaudio*` → `best` s'arrête au PREMIER cran
- * qui matche :
- * si `bestaudio` attrape un rendu video-only (codecs `unknown`, fréquent sur
- * Instagram), yt-dlp télécharge celui-là et échoue — il ne retombe jamais sur
- * `best`. On refait donc le tour avec le média complet muxé, et c'est ffprobe
- * qui tranche : piste audio présente → on l'extrait nous-mêmes ; aucune →
- * le média est réellement muet (photo, carrousel, vidéo sans son).
+ * Les formats explicitement video-only (`acodec: 'none'`) sont écartés : ils ne
+ * donneront jamais rien. Les codecs `unknown` d'Instagram sont gardés — ce sont
+ * souvent des rendus muxés parfaitement sonores.
  *
- * @returns {Promise<string|null>} chemin du mp3 extrait, ou null si média muet
+ * @returns {string[]} format_id, dans l'ordre à essayer
  */
-async function retryViaFullMedia(url, baseOpts, workDir, audioPath) {
+function pickAudioCandidates(info) {
+  const formats = (Array.isArray(info?.formats) ? info.formats : []).filter((f) => f?.format_id);
+  const isVideoOnly = (f) => f.acodec === 'none';
+  const isAudioOnly = (f) => f.vcodec === 'none' && !isVideoOnly(f);
+  // Taille inconnue en dernier : on ne sait pas ce qu'on s'apprête à tirer.
+  const weight = (f) => f.filesize ?? f.filesize_approx ?? Number.POSITIVE_INFINITY;
+  const bySize = (a, b) => weight(a) - weight(b);
+
+  const audioOnly = formats.filter(isAudioOnly).sort(bySize);
+  const maybeMuxed = formats.filter((f) => !isAudioOnly(f) && !isVideoOnly(f)).sort(bySize);
+
+  return [...audioOnly, ...maybeMuxed].slice(0, MAX_FORMAT_CANDIDATES).map((f) => f.format_id);
+}
+
+/**
+ * Télécharge UN format précis et en sort un mp3 mono 16 kHz 64 kbps.
+ *
+ * On cible un format_id explicite plutôt qu'un sélecteur en cascade du type
+ * `bestaudio` puis `bestaudio*` puis `best` : un sélecteur s'arrête au PREMIER
+ * cran qui matche, donc un rendu video-only capté par `bestaudio*` faisait
+ * échouer tout le téléchargement sans jamais essayer les formats suivants.
+ *
+ * @returns {Promise<boolean>} true si un mp3 a été écrit ; false si le fichier
+ *   téléchargé ne contient réellement aucune piste audio
+ * @throws si le téléchargement, ffprobe ou ffmpeg échoue (erreur technique)
+ */
+async function extractAudioFromFormat(url, baseOpts, formatId, workDir, audioPath, tag) {
+  const attemptDir = path.join(workDir, `fmt-${tag}`);
+  await mkdir(attemptDir, { recursive: true });
+
   await youtubeDlExec(url, {
     ...baseOpts,
-    output: path.join(workDir, 'media.%(ext)s'),
-    format: 'best',
+    output: path.join(attemptDir, 'media.%(ext)s'),
+    format: formatId,
   });
 
-  const media = (await readdir(workDir)).find((f) => f.startsWith('media.'));
-  if (!media) return null;
+  const media = (await readdir(attemptDir)).find((f) => f.startsWith('media.'));
+  if (!media) throw new Error(`yt-dlp n'a écrit aucun fichier pour le format ${formatId}.`);
 
-  const mediaPath = path.join(workDir, media);
-  if (!(await hasAudioStream(mediaPath))) return null;
+  const mediaPath = path.join(attemptDir, media);
+  if (!(await hasAudioStream(mediaPath))) return false;
 
   // Mêmes paramètres que le postprocessor yt-dlp : mono 16 kHz 64 kbps.
   await execAsync(
     `ffmpeg -i "${mediaPath}" -vn -ac 1 -ar 16000 -b:a 64k "${audioPath}" -y -loglevel error`,
   );
-  return audioPath;
+  return true;
+}
+
+/**
+ * Essaie les formats candidats jusqu'à obtenir de l'audio.
+ *
+ * Distingue les deux issues que l'ancien code confondait :
+ * - `silent` : TOUS les candidats ont été téléchargés et ffprobe n'y a trouvé
+ *   aucune piste audio → le média est muet, c'est prouvé.
+ * - `failed` : au moins un candidat n'a pas pu être vérifié (téléchargement ou
+ *   ffprobe en erreur) → on ne sait pas, donc on n'invente rien.
+ *
+ * @returns {Promise<{ status: 'ok' | 'silent' | 'failed', error?: Error }>}
+ */
+async function extractAudioAnyFormat(url, baseOpts, candidates, workDir, audioPath) {
+  const silentFormats = new Set();
+  let lastError = null;
+
+  for (let pass = 1; pass <= DOWNLOAD_PASSES; pass++) {
+    for (const [index, formatId] of candidates.entries()) {
+      if (silentFormats.has(formatId)) continue; // déjà prouvé sans audio
+      try {
+        const ok = await extractAudioFromFormat(
+          url,
+          baseOpts,
+          formatId,
+          workDir,
+          audioPath,
+          `${pass}-${index}`,
+        );
+        if (ok) {
+          console.log(`[download] audio extrait du format ${formatId}`);
+          return { status: 'ok' };
+        }
+        silentFormats.add(formatId);
+        console.warn(`[download] format ${formatId} : aucune piste audio dans le fichier téléchargé`);
+      } catch (err) {
+        lastError = err;
+        // stderr complet en log : c'est la seule trace qui permet de
+        // diagnostiquer après coup ce que yt-dlp a refusé de faire.
+        console.warn(`[download] format ${formatId} KO (passe ${pass}) :\n${errText(err)}`);
+      }
+    }
+
+    if (silentFormats.size === candidates.length) break; // tout est prouvé muet
+    if (pass < DOWNLOAD_PASSES) {
+      console.warn(`[download] échec sur tous les formats — nouvelle passe dans ${PASS_BACKOFF_MS} ms…`);
+      await sleep(PASS_BACKOFF_MS);
+    }
+  }
+
+  if (silentFormats.size === candidates.length) return { status: 'silent' };
+  return { status: 'failed', error: lastError };
 }
 
 const WHISPER_MAX_BYTES = 24 * 1024 * 1024; // 24 Mo de marge sous la limite 25 Mo de Whisper
@@ -140,9 +238,15 @@ export function detectPlatform(url) {
  * Télécharge l'audio d'une vidéo et le retourne en mp3 mono 64kbps.
  * Si le fichier dépasse 24 Mo, segmente en chunks de 10 min via ffmpeg.
  *
- * Si le média n'a aucune piste audio (photo, carrousel, vidéo muette), ce n'est
- * pas une erreur : on renvoie `audioFiles: []` + `noAudio: true` avec les
- * métadonnées, et l'appelant enchaîne sur la description seule.
+ * Règle centrale : l'absence d'audio doit être PROUVÉE (aucun format porteur
+ * d'audio dans les métadonnées, ou ffprobe qui ne trouve aucune piste dans les
+ * fichiers effectivement téléchargés). Un échec de téléchargement n'est jamais
+ * une preuve : dans ce cas on remonte une erreur plutôt que de basculer sur la
+ * description seule, qui produirait une recette aux étapes devinées.
+ *
+ * Quand l'absence d'audio est prouvée (photo, carrousel, vidéo muette), on
+ * renvoie `audioFiles: []` + `noAudio: true` et l'appelant enchaîne sur la
+ * description.
  *
  * @returns {Promise<{
  *   audioFiles: string[],
@@ -200,73 +304,34 @@ export async function downloadAudio(url) {
       : {}),
   };
 
-  let metadata = {};
-  let noAudio = false;
+  // 1. Métadonnées + liste des formats. C'est cette réponse qui fait foi sur la
+  //    présence d'audio, jamais l'échec d'un téléchargement.
+  let info;
   try {
-    const info = await youtubeDlExec(url, {
-      ...baseOpts,
-      dumpSingleJson: true,
-    });
-    metadata = {
-      title: info.title,
-      description: info.description,
-      thumbnailUrl: info.thumbnail,
-      durationSeconds: info.duration,
-    };
-
-    await youtubeDlExec(url, {
-      ...baseOpts,
-      output: audioPath,
-      extractAudio: true,
-      audioFormat: 'mp3',
-      audioQuality: 5, // qualité moyenne, suffisant pour Whisper
-      // Sélecteur explicite avec fallbacks, du plus sûr au plus permissif :
-      // - `bestaudio` (sans `*`) ne matche QUE les formats audio-only : la
-      //   piste audio est garantie. Sur Instagram c'est le DASH m4a (~200 Ko)
-      //   au lieu du mp4 muxed (~7 Mo) — 30x moins de données à télécharger.
-      // - `bestaudio*` couvre le muxed-with-audio, utile sur les Shorts où
-      //   l'audio-only pur n'existe parfois pas.
-      // - `best` en dernier recours, contre "Requested format is not available".
-      // Sans le premier cran, yt-dlp classait les formats Instagram aux codecs
-      // `unknown` au-dessus de la piste audio et pouvait retomber sur un rendu
-      // video-only -> "unable to obtain file audio codec with ffprobe".
-      format: 'bestaudio/bestaudio*/best',
-      postprocessorArgs: 'ffmpeg:-ac 1 -ar 16000 -b:a 64k', // mono, 16kHz, 64kbps
-    });
+    info = await youtubeDlExec(url, { ...baseOpts, dumpSingleJson: true });
   } catch (err) {
-    const errMsg = err.message ?? err.stderr ?? '';
-
-    // Pas d'audio dans ce qui a été téléchargé : ce n'est pas forcément une
-    // impasse. On retente sur le média complet, et si le média est vraiment
-    // muet on rend la main sans audio — l'import continuera sur la seule
-    // description (cf. routes/import.js).
-    if (NO_AUDIO_PATTERN.test(errMsg) || NO_MEDIA_PATTERN.test(errMsg)) {
-      let recovered = null;
-      if (NO_AUDIO_PATTERN.test(errMsg)) {
-        console.warn('[download] format sans piste audio — nouvelle tentative sur le média complet…');
-        try {
-          recovered = await retryViaFullMedia(url, baseOpts, workDir, audioPath);
-        } catch (retryErr) {
-          console.warn(`[download] retry média complet échoué : ${retryErr.message}`);
-        }
-      }
-      if (recovered) {
-        console.log('[download] audio récupéré depuis le média complet');
-        noAudio = false;
-      } else {
-        console.warn('[download] média sans piste audio — extraction depuis la description seule');
-        noAudio = true;
-      }
-    } else {
-      await cleanup();
-      throw buildDownloadError(platform, cookiesPath, errMsg);
+    const errMsg = errText(err);
+    console.warn(`[download] métadonnées KO :\n${errMsg}`);
+    await cleanup();
+    if (NO_MEDIA_PATTERN.test(errMsg)) {
+      throw new Error(
+        "Ce post ne contient aucune vidéo (photo seule) : ni audio ni description récupérables. Copie la recette dans les notes pour l'importer quand même.",
+      );
     }
+    throw buildDownloadError(platform, cookiesPath, errMsg);
   }
 
-  if (noAudio) {
-    // Sans audio, la description (légende Instagram) est la seule source
-    // possible : s'il n'y a rien non plus de ce côté, autant le dire tout de
-    // suite plutôt que de payer un appel Claude pour rien.
+  const metadata = {
+    title: info.title,
+    description: info.description,
+    thumbnailUrl: info.thumbnail,
+    durationSeconds: info.duration,
+  };
+
+  // Sans audio, la description (légende Instagram) est la seule source
+  // possible : s'il n'y a rien non plus de ce côté, autant le dire tout de
+  // suite plutôt que de payer un appel Claude pour rien.
+  const noAudioResult = async () => {
     const fallbackSource = `${metadata.title ?? ''} ${metadata.description ?? ''}`.trim();
     if (!fallbackSource) {
       await cleanup();
@@ -275,6 +340,38 @@ export async function downloadAudio(url) {
       );
     }
     return { audioFiles: [], noAudio: true, metadata, workDir, cleanup };
+  };
+
+  // 2. Aucun format ne peut porter d'audio : carrousel d'images, ou vidéo dont
+  //    tous les rendus sont explicitement video-only. Prouvé par les
+  //    métadonnées, sans rien télécharger.
+  const candidates = pickAudioCandidates(info);
+  if (candidates.length === 0) {
+    console.warn('[download] aucun format porteur d\'audio — extraction depuis la description seule');
+    return noAudioResult();
+  }
+
+  // 3. Essai des formats un par un.
+  console.log(`[download] ${candidates.length} format(s) candidat(s) : ${candidates.join(', ')}`);
+  const outcome = await extractAudioAnyFormat(url, baseOpts, candidates, workDir, audioPath);
+
+  if (outcome.status === 'silent') {
+    console.warn('[download] média muet confirmé par ffprobe — extraction depuis la description seule');
+    return noAudioResult();
+  }
+
+  if (outcome.status === 'failed') {
+    // On ne dégrade PAS en import description-only : la vidéo a des formats
+    // porteurs d'audio, on n'a simplement pas réussi à les récupérer. Importer
+    // quand même donnerait une recette aux étapes inventées.
+    const detail = errText(outcome.error);
+    await cleanup();
+    if (isAuthError(platform, detail)) {
+      throw buildDownloadError(platform, cookiesPath, detail);
+    }
+    throw new Error(
+      `Impossible de récupérer l'audio de cette vidéo (${candidates.length} format(s) essayé(s), ${DOWNLOAD_PASSES} passes). Réessaie dans un instant. Détail : ${errExcerpt(detail)}`,
+    );
   }
 
   const { size } = await stat(audioPath);

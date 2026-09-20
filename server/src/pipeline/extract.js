@@ -170,12 +170,17 @@ export async function extractRecipe(transcript, metadata = {}, notes = null, exi
   }
 
   const recipe = toolUse.input;
+  // Sans transcription, la consigne ci-dessus interdit de deviner les étapes :
+  // une légende qui ne liste que les ingrédients donne donc légitimement
+  // steps=[]. Exiger des étapes ici renverrait un 422 et ferait perdre la
+  // liste d'ingrédients, qui est justement ce qu'on pouvait sauver.
+  const stepsRequired = hasTranscript;
   const isRecipe =
     recipe.title !== 'Pas une recette' &&
     Array.isArray(recipe.ingredients) &&
     recipe.ingredients.length > 0 &&
     Array.isArray(recipe.steps) &&
-    recipe.steps.length > 0;
+    (!stepsRequired || recipe.steps.length > 0);
 
   return { ...recipe, isRecipe };
 }
